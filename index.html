@@ -17,9 +17,15 @@
       <div class="row">
         <div>
           <label>OpenRouter API Key</label>
-          <input id="apiKey" type="password" placeholder="sk-or-v1-..." />
+          <div style="display: flex; gap: 8px; align-items: flex-start;">
+            <input id="apiKey" type="password" placeholder="sk-or-v1-..." style="flex: 1;" />
+            <button id="checkApiKeyBtn" class="btn secondary" style="padding: 10px 12px; white-space: nowrap;" title="Check API key status and credits">Check Status</button>
+          </div>
           <div class="switch" style="margin-top:8px">
             <label class="pill"><input id="rememberKey" type="checkbox" /> Remember key (localStorage)</label>
+          </div>
+          <div id="apiKeyStatus" style="margin-top: 8px; display: none;">
+            <!-- Status information will be displayed here -->
           </div>
         </div>
         <div>

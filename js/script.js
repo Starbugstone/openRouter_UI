@@ -29,6 +29,8 @@
   var imageUploadBtn = $("imageUploadBtn");
   var imageUpload = $("imageUpload");
   var imagePreview = $("imagePreview");
+  var checkApiKeyBtn = $("checkApiKeyBtn");
+  var apiKeyStatus = $("apiKeyStatus");
   
   // Regeneration control elements (will be created dynamically)
   var currentRegenerationControls = null;
@@ -333,8 +335,127 @@
     fetchModels();
   });
 
+  // Add check API key button functionality
+  checkApiKeyBtn.addEventListener('click', function() {
+    var key = (apiKeyEl.value || "").trim();
+    if (!key) {
+      alert("Please enter your OpenRouter API key first.");
+      return;
+    }
+    checkApiKeyStatus(key);
+  });
+
   // Load models on page load
   fetchModels();
+
+  // API Key Status Check Function
+  function checkApiKeyStatus(key) {
+    // Show loading state
+    checkApiKeyBtn.disabled = true;
+    checkApiKeyBtn.textContent = 'Checking...';
+    apiKeyStatus.style.display = 'block';
+    apiKeyStatus.innerHTML = '<div style="color: #9aa0aa; font-size: 12px;">Checking API key status...</div>';
+
+    fetch('https://openrouter.ai/api/v1/key', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer ' + key,
+        'Content-Type': 'application/json'
+      }
+    })
+    .then(function(response) {
+      if (!response.ok) {
+        throw new Error('HTTP ' + response.status + ' - ' + response.statusText);
+      }
+      return response.json();
+    })
+    .then(function(data) {
+      displayApiKeyStatus(data);
+    })
+    .catch(function(error) {
+      console.error('Error checking API key status:', error);
+      apiKeyStatus.innerHTML = '<div style="color: #ff4444; font-size: 12px;">Error: ' + error.message + '</div>';
+    })
+    .finally(function() {
+      // Reset button state
+      checkApiKeyBtn.disabled = false;
+      checkApiKeyBtn.textContent = 'Check Status';
+    });
+  }
+
+  function displayApiKeyStatus(data) {
+    var keyData = data.data || {};
+    var usage = keyData.usage || 0;
+    var limit = keyData.limit;
+    var limitRemaining = keyData.limit_remaining;
+    var isFreeTier = keyData.is_free_tier || false;
+    var label = keyData.label || 'Unnamed Key';
+
+    var statusHtml = '<div style="background: #0e1015; border: 1px solid #2a2e37; border-radius: 8px; padding: 12px; position: relative;">';
+    statusHtml += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">';
+    statusHtml += '<div style="color: #e8eaed; font-weight: 600;">API Key Status</div>';
+    statusHtml += '<button id="closeApiKeyStatus" style="background: none; border: none; color: #9aa0aa; font-size: 18px; cursor: pointer; padding: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 4px;" title="Close status">×</button>';
+    statusHtml += '</div>';
+    statusHtml += '<div style="color: #b6b9c3; font-size: 12px; margin-bottom: 4px;"><strong>Label:</strong> ' + label + '</div>';
+    
+    // Spend limit information
+    if (limit !== null) {
+      if (limit === 0) {
+        statusHtml += '<div style="color: #ff4444; font-size: 12px; margin-bottom: 4px;"><strong>Spend Limit:</strong> $0.00 (Disabled)</div>';
+        statusHtml += '<div style="color: #9aa0aa; font-size: 11px; margin-bottom: 4px;">No spending allowed on this API key</div>';
+      } else {
+        var remaining = limitRemaining !== null ? limitRemaining : (limit - usage);
+        var usagePercent = limit > 0 ? (usage / limit) * 100 : 0;
+        var statusColor = usagePercent > 90 ? '#ff4444' : usagePercent > 75 ? '#ffaa44' : '#44ff44';
+        
+        statusHtml += '<div style="color: #b6b9c3; font-size: 12px; margin-bottom: 4px;"><strong>Spend Limit:</strong> $' + limit.toFixed(2) + '</div>';
+        statusHtml += '<div style="color: #b6b9c3; font-size: 12px; margin-bottom: 4px;"><strong>Spent:</strong> $' + usage.toFixed(2) + '</div>';
+        statusHtml += '<div style="color: #b6b9c3; font-size: 12px; margin-bottom: 4px;"><strong>Remaining:</strong> <span style="color: ' + statusColor + ';">$' + remaining.toFixed(2) + '</span></div>';
+        
+        // Progress bar
+        statusHtml += '<div style="background: #21242c; border-radius: 4px; height: 6px; margin: 8px 0; overflow: hidden;">';
+        statusHtml += '<div style="background: ' + statusColor + '; height: 100%; width: ' + Math.min(usagePercent, 100) + '%; transition: width 0.3s;"></div>';
+        statusHtml += '</div>';
+      }
+    } else {
+      statusHtml += '<div style="color: #44ff44; font-size: 12px; margin-bottom: 4px;"><strong>Spend Limit:</strong> Unlimited</div>';
+    }
+    
+    statusHtml += '<div style="color: #b6b9c3; font-size: 12px; margin-bottom: 4px;"><strong>Account Type:</strong> ' + (isFreeTier ? 'Free Tier' : 'Paid Account') + '</div>';
+    
+    // Rate limit information
+    statusHtml += '<div style="color: #9aa0aa; font-size: 11px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #2a2e37;">';
+    statusHtml += '<strong>Rate Limits:</strong><br>';
+    statusHtml += '• Free models: 20 requests/minute<br>';
+    if (isFreeTier) {
+      statusHtml += '• Daily limit: ' + (usage < 10 ? '50' : '1000') + ' free model requests/day';
+    } else {
+      statusHtml += '• Daily limit: 1000 free model requests/day';
+    }
+    statusHtml += '</div>';
+    
+    statusHtml += '</div>';
+    
+    apiKeyStatus.innerHTML = statusHtml;
+    
+    // Add event listener for close button
+    var closeBtn = document.getElementById('closeApiKeyStatus');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function() {
+        apiKeyStatus.style.display = 'none';
+      });
+      
+      // Add hover effect
+      closeBtn.addEventListener('mouseenter', function() {
+        this.style.background = '#2a2e37';
+        this.style.color = '#e8eaed';
+      });
+      closeBtn.addEventListener('mouseleave', function() {
+        this.style.background = 'none';
+        this.style.color = '#9aa0aa';
+      });
+    }
+  }
 
   // Chat functionality
   function sendMessage() {
