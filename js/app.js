@@ -228,7 +228,8 @@
         onStopGeneration: () => this.handleStopGeneration(),
         onPreviousResponse: () => this.handlePreviousResponse(),
         onNextResponse: () => this.handleNextResponse(),
-        onRegenerateResponse: () => this.handleRegenerateResponse()
+        onRegenerateResponse: () => this.handleRegenerateResponse(),
+        onMessageEdited: (newContent) => this.handleMessageEdited(newContent)
       });
     }
 
@@ -668,6 +669,62 @@
           await this.runTextChat(key, selectedModel.id, lastUserMessage.content);
         } else {
           await this.runImageChat(key, selectedModel.id, lastUserMessage.content);
+        }
+      } catch (error) {
+        this.handleError(error);
+      }
+    }
+
+    /**
+     * Handle message edited - remove assistant response and regenerate
+     */
+    async handleMessageEdited(newContent) {
+      console.log('Message edited:', newContent);
+      
+      // Update the stored user message in regeneration manager
+      RegenerationManager.storeLastUserMessage({
+        content: newContent,
+        images: ImageHandler.getUploadedImages() // Keep any uploaded images
+      });
+      
+      // Remove the last assistant message from chat history
+      const messageHistory = ChatManager.getMessageHistory();
+      if (messageHistory.length > 0 && messageHistory[messageHistory.length - 1].role === 'assistant') {
+        messageHistory.pop();
+        ChatManager.setMessageHistory(messageHistory);
+        
+        // Remove the last assistant message from the UI
+        const { chatMessages } = this.elements;
+        if (chatMessages) {
+          const assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+          if (assistantMessages.length > 0) {
+            const lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+            lastAssistantMessage.remove();
+          }
+        }
+      }
+      
+      // Clear regeneration history since we're starting fresh
+      RegenerationManager.clearRegenerationHistoryOnly();
+      
+      // Show typing indicator and regenerate response
+      ChatManager.showTypingIndicator();
+      
+      const { apiKey, mode } = this.elements;
+      const key = DOMUtils.getValue(apiKey).trim();
+      const modeValue = DOMUtils.getValue(mode);
+      const selectedModel = ModelManager.getSelectedModel();
+      
+      if (!key || !selectedModel) {
+        ChatManager.hideTypingIndicator();
+        return;
+      }
+      
+      try {
+        if (modeValue === 'text') {
+          await this.runTextChat(key, selectedModel.id, newContent);
+        } else {
+          await this.runImageChat(key, selectedModel.id, newContent);
         }
       } catch (error) {
         this.handleError(error);

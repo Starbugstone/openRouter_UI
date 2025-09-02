@@ -145,6 +145,15 @@
       
       messageDiv.appendChild(timeDiv);
       
+      // Add edit button for user messages (only for the last user message)
+      if (role === 'user') {
+        // Hide edit buttons on all previous user messages
+        this.hidePreviousEditButtons();
+        
+        const editBtn = this.createEditButton();
+        messageDiv.appendChild(editBtn);
+      }
+      
       // Add regeneration controls for assistant messages
       if (role === 'assistant') {
         // Hide regeneration controls on all previous assistant messages
@@ -217,6 +226,211 @@
       allRegenerationControls.forEach(controls => {
         DOMUtils.hideElement(controls);
       });
+    }
+
+    /**
+     * Hide edit buttons on all previous user messages
+     */
+    hidePreviousEditButtons() {
+      const { chatMessages } = this.elements;
+      if (!chatMessages) return;
+      
+      const allEditButtons = chatMessages.querySelectorAll('.edit-message-btn');
+      allEditButtons.forEach(btn => {
+        DOMUtils.hideElement(btn);
+      });
+    }
+
+    /**
+     * Create edit button for user messages
+     * @returns {HTMLElement} Edit button element
+     */
+    createEditButton() {
+      const editBtn = DOMUtils.createElement('button', {
+        className: 'edit-message-btn',
+        title: 'Edit message',
+        innerHTML: '✏️'
+      });
+      
+      DOMUtils.addEventListener(editBtn, 'click', (event) => {
+        event.stopPropagation();
+        this.startEditMode(editBtn.parentElement);
+      });
+      
+      return editBtn;
+    }
+
+    /**
+     * Start edit mode for a user message
+     * @param {HTMLElement} messageElement - Message element to edit
+     */
+    startEditMode(messageElement) {
+      if (!messageElement || !messageElement.classList.contains('user')) return;
+      
+      const contentDiv = messageElement.querySelector('.message-content');
+      if (!contentDiv) return;
+      
+      const originalContent = contentDiv.textContent;
+      
+      // Add editing class
+      messageElement.classList.add('editing');
+      
+      // Make the content div editable
+      contentDiv.contentEditable = true;
+      contentDiv.focus();
+      
+      // Select all text for easy editing
+      const range = document.createRange();
+      range.selectNodeContents(contentDiv);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      // Create edit controls
+      const editControls = this.createEditControls(messageElement, originalContent, contentDiv);
+      messageElement.appendChild(editControls);
+      
+      // Handle keyboard shortcuts
+      const handleKeydown = (event) => {
+        if (event.key === 'Enter' && event.ctrlKey) {
+          event.preventDefault();
+          this.saveEdit(messageElement, contentDiv);
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          this.cancelEdit(messageElement, originalContent);
+        }
+      };
+      
+      DOMUtils.addEventListener(contentDiv, 'keydown', handleKeydown);
+      
+      // Store the handler for cleanup
+      contentDiv._keydownHandler = handleKeydown;
+    }
+
+    /**
+     * Create edit controls (save/cancel buttons)
+     * @param {HTMLElement} messageElement - Message element
+     * @param {string} originalContent - Original content for cancel
+     * @param {HTMLElement} contentDiv - ContentEditable div element
+     * @returns {HTMLElement} Edit controls container
+     */
+    createEditControls(messageElement, originalContent, contentDiv) {
+      const controlsDiv = DOMUtils.createElement('div', {
+        className: 'edit-controls'
+      });
+      
+      const saveBtn = DOMUtils.createElement('button', {
+        className: 'edit-save-btn',
+        textContent: 'Save'
+      });
+      
+      const cancelBtn = DOMUtils.createElement('button', {
+        className: 'edit-cancel-btn',
+        textContent: 'Cancel'
+      });
+      
+      DOMUtils.addEventListener(saveBtn, 'click', () => {
+        this.saveEdit(messageElement, contentDiv);
+      });
+      
+      DOMUtils.addEventListener(cancelBtn, 'click', () => {
+        this.cancelEdit(messageElement, originalContent);
+      });
+      
+      controlsDiv.appendChild(saveBtn);
+      controlsDiv.appendChild(cancelBtn);
+      
+      return controlsDiv;
+    }
+
+    /**
+     * Save edit and trigger regeneration
+     * @param {HTMLElement} messageElement - Message element
+     * @param {HTMLElement} contentDiv - ContentEditable div element
+     */
+    saveEdit(messageElement, contentDiv) {
+      const newContent = contentDiv.textContent.trim();
+      if (!newContent) return;
+      
+      // Make content non-editable
+      contentDiv.contentEditable = false;
+      
+      // Remove editing state
+      messageElement.classList.remove('editing');
+      
+      // Remove edit controls
+      const editControls = messageElement.querySelector('.edit-controls');
+      if (editControls) {
+        editControls.remove();
+      }
+      
+      // Update message history
+      this.updateMessageInHistory(messageElement, newContent);
+      
+      // Trigger edit callback
+      if (this.onMessageEdited) {
+        this.onMessageEdited(newContent);
+      }
+    }
+
+    /**
+     * Cancel edit and restore original content
+     * @param {HTMLElement} messageElement - Message element
+     * @param {string} originalContent - Original content
+     */
+    cancelEdit(messageElement, originalContent) {
+      const contentDiv = messageElement.querySelector('.message-content');
+      if (!contentDiv) return;
+      
+      // Restore original content
+      contentDiv.textContent = originalContent;
+      
+      // Make content non-editable
+      contentDiv.contentEditable = false;
+      
+      // Remove editing state
+      messageElement.classList.remove('editing');
+      
+      // Remove edit controls
+      const editControls = messageElement.querySelector('.edit-controls');
+      if (editControls) {
+        editControls.remove();
+      }
+    }
+
+    /**
+     * Update message in history
+     * @param {HTMLElement} messageElement - Message element
+     * @param {string} newContent - New content
+     */
+    updateMessageInHistory(messageElement, newContent) {
+      // Find the message in history and update it
+      const messageIndex = this.findMessageIndex(messageElement);
+      if (messageIndex >= 0) {
+        this.messageHistory[messageIndex].content = newContent;
+      }
+    }
+
+    /**
+     * Find message index in history
+     * @param {HTMLElement} messageElement - Message element
+     * @returns {number} Message index or -1 if not found
+     */
+    findMessageIndex(messageElement) {
+      const { chatMessages } = this.elements;
+      if (!chatMessages) return -1;
+      
+      const allMessages = chatMessages.querySelectorAll('.message');
+      let index = -1;
+      
+      for (let i = 0; i < allMessages.length; i++) {
+        if (allMessages[i] === messageElement) {
+          index = i;
+          break;
+        }
+      }
+      
+      return index;
     }
 
     /**
@@ -448,6 +662,7 @@
       this.onPreviousResponse = callbacks.onPreviousResponse;
       this.onNextResponse = callbacks.onNextResponse;
       this.onRegenerateResponse = callbacks.onRegenerateResponse;
+      this.onMessageEdited = callbacks.onMessageEdited;
     }
   }
 
