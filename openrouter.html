@@ -14,6 +14,28 @@
     input[type="text"], input[type="password"], textarea, select, input[type="number"] {
       width: 100%; padding: 10px 12px; background:#0e1015; color:#e8eaed; border:1px solid #2a2e37; border-radius: 8px;
     }
+    #modelSearch {
+      font-size: 14px;
+      background: #0e1015;
+      color: #e8eaed;
+      border: 1px solid #2a2e37;
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+    #modelSearch:focus {
+      outline: none;
+      border-color: #2d7cff;
+      box-shadow: 0 0 0 2px rgba(45, 124, 255, 0.2);
+    }
+    #model {
+      background: #0e1015;
+      color: #e8eaed;
+      border: 1px solid #2a2e37;
+    }
+    #model option {
+      background: #0e1015;
+      color: #e8eaed;
+    }
     textarea { resize: vertical; min-height: 90px; }
     .row { display:flex; gap:12px; flex-wrap:wrap; }
     .row > * { flex: 1 1 240px; }
@@ -65,12 +87,16 @@
 
       <div class="row" style="margin-top:12px">
         <div>
-          <label>Model ID</label>
-          <input id="model" type="text"
-                 placeholder="e.g. openrouter/auto (text) or google/gemini-2.5-flash-image-preview (image)" />
+          <label>Model Selection</label>
+          <div style="position: relative;">
+            <input id="modelSearch" type="text" placeholder="Search free models..." style="margin-bottom: 8px;" />
+            <select id="model" style="width: 100%;">
+              <option value="">Loading models...</option>
+            </select>
+          </div>
           <div class="muted small" style="margin-top:6px">
-            Examples (text): <code>openrouter/auto</code>, <code>anthropic/claude-3.5-sonnet</code>, <code>meta-llama/llama-3.1-70b-instruct</code><br/>
-            Examples (image): <code>google/gemini-2.5-flash-image-preview</code><br/>
+            <strong>Free Models:</strong> <span id="modelCount">Loading...</span> available free models. 
+            <button type="button" id="refreshModels" class="btn secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 8px;">Refresh</button><br/>
             <strong>Note:</strong> Multiple images (n>1) may not be supported by all models. Google Gemini typically generates 1 image per request.
           </div>
         </div>
@@ -137,10 +163,15 @@
   var modal = $("imageModal");
   var modalImg = $("modalImage");
   var modalCaption = $("modalCaption");
+  var modelSearchEl = $("modelSearch");
+  var modelCountEl = $("modelCount");
+  var refreshModelsBtn = $("refreshModels");
 
   var currentController = null;
   var streamingActive = false;
   var timeoutHandle = null;
+  var allModels = [];
+  var freeModels = [];
 
   try {
     var saved = localStorage.getItem("or_api_key");
@@ -196,6 +227,74 @@
       modal.style.display = "none";
     }
   });
+
+  // Fetch and populate models
+  function fetchModels() {
+    fetch('https://openrouter.ai/api/v1/models')
+      .then(function(response) {
+        if (!response.ok) {
+          throw new Error('Failed to fetch models: ' + response.status);
+        }
+        return response.json();
+      })
+      .then(function(data) {
+        allModels = data.data || [];
+        // Filter for free models (both prompt and completion pricing are "0")
+        freeModels = allModels.filter(function(model) {
+          var pricing = model.pricing || {};
+          return pricing.prompt === "0" && pricing.completion === "0";
+        });
+        
+        // Sort models by name for better UX
+        freeModels.sort(function(a, b) {
+          return a.name.localeCompare(b.name);
+        });
+        
+        populateModelDropdown();
+        modelCountEl.textContent = freeModels.length;
+        console.log('Loaded ' + freeModels.length + ' free models');
+      })
+      .catch(function(error) {
+        console.error('Error fetching models:', error);
+        modelEl.innerHTML = '<option value="">Error loading models</option>';
+        modelCountEl.textContent = 'Error';
+      });
+  }
+
+  function populateModelDropdown() {
+    modelEl.innerHTML = '<option value="">Select a free model...</option>';
+    
+    freeModels.forEach(function(model) {
+      var option = document.createElement('option');
+      option.value = model.id;
+      option.textContent = model.name + ' (' + model.id + ')';
+      modelEl.appendChild(option);
+    });
+  }
+
+  function filterModels() {
+    var searchTerm = modelSearchEl.value.toLowerCase();
+    var options = modelEl.options;
+    
+    for (var i = 0; i < options.length; i++) {
+      var option = options[i];
+      var text = option.textContent.toLowerCase();
+      option.style.display = text.includes(searchTerm) ? '' : 'none';
+    }
+  }
+
+  // Add search functionality
+  modelSearchEl.addEventListener('input', filterModels);
+
+  // Add refresh button functionality
+  refreshModelsBtn.addEventListener('click', function() {
+    modelCountEl.textContent = 'Loading...';
+    modelEl.innerHTML = '<option value="">Loading models...</option>';
+    fetchModels();
+  });
+
+  // Load models on page load
+  fetchModels();
 
   runBtn.addEventListener("click", function(){
     var key = (apiKeyEl.value || "").trim();
