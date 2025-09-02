@@ -558,16 +558,13 @@
     // Build messages array with conversation history
     var messages = [];
     
-    // Add all previous messages to maintain context
+    // Add all messages from history (including the current user message that was just added)
     messageHistory.forEach(function(msg) {
       messages.push({
         role: msg.role,
         content: msg.content
       });
     });
-    
-    // Add the current user message
-    messages.push({ role: "user", content: prompt });
     
     var body = { model: model, messages: messages, stream: stream };
     var url = "https://openrouter.ai/api/v1/chat/completions";
@@ -706,16 +703,13 @@
     // Build messages array with conversation history
     var messages = [];
     
-    // Add all previous messages to maintain context
+    // Add all messages from history (including the current user message that was just added)
     messageHistory.forEach(function(msg) {
       messages.push({
         role: msg.role,
         content: msg.content
       });
     });
-    
-    // Add the current user message
-    messages.push({ role: "user", content: prompt });
     
     var body = { model: model, messages: messages, modalities: ["image","text"], n: n, stream: stream };
     var url = "https://openrouter.ai/api/v1/chat/completions";
