@@ -746,13 +746,15 @@
       
       DOMUtils.setInnerHTML(apiKeyStatus, statusHtml);
       
-      // Add event listener for close button
-      const closeBtn = DOMUtils.getElementById('closeApiKeyStatus');
-      if (closeBtn) {
-        DOMUtils.addEventListener(closeBtn, 'click', () => {
+      // Add event listener for close button using event delegation
+      // Remove any existing listeners first to prevent duplicates
+      apiKeyStatus.removeEventListener('click', this.handleApiKeyStatusClick);
+      this.handleApiKeyStatusClick = (event) => {
+        if (event.target && event.target.id === 'closeApiKeyStatus') {
           DOMUtils.hideElement(apiKeyStatus);
-        });
-      }
+        }
+      };
+      DOMUtils.addEventListener(apiKeyStatus, 'click', this.handleApiKeyStatusClick);
     }
 
     /**
