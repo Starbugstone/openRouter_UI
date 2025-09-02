@@ -20,12 +20,23 @@
   var modelSearchEl = $("modelSearch");
   var modelCountEl = $("modelCount");
   var refreshModelsBtn = $("refreshModels");
+  
+  // New model selector elements
+  var modelSelectorBtn = $("modelSelectorBtn");
+  var selectedModelText = $("selectedModelText");
+  var modelSelectorModal = $("modelSelectorModal");
+  var modelModalClose = $("modelModalClose");
+  var modelSearchPopup = $("modelSearchPopup");
+  var modelsGrid = $("modelsGrid");
+  var filterButtons = document.querySelectorAll('.filter-btn');
 
   var currentController = null;
   var streamingActive = false;
   var timeoutHandle = null;
   var allModels = [];
   var freeModels = [];
+  var selectedModel = null;
+  var currentFilter = 'all';
 
   try {
     var saved = localStorage.getItem("or_api_key");
@@ -80,6 +91,25 @@
     if (event.key === "Escape" && modal.style.display === "block") {
       modal.style.display = "none";
     }
+    if (event.key === "Escape" && modelSelectorModal.style.display === "block") {
+      modelSelectorModal.style.display = "none";
+    }
+  });
+
+  // Model selector modal functionality
+  modelSelectorBtn.addEventListener("click", function(){
+    modelSelectorModal.style.display = "block";
+  });
+
+  modelModalClose.addEventListener("click", function(){
+    modelSelectorModal.style.display = "none";
+  });
+
+  // Close model selector modal when clicking outside
+  modelSelectorModal.addEventListener("click", function(event){
+    if (event.target === modelSelectorModal) {
+      modelSelectorModal.style.display = "none";
+    }
   });
 
   // Fetch and populate models
@@ -104,7 +134,7 @@
           return a.name.localeCompare(b.name);
         });
         
-        populateModelDropdown();
+        populateModelSelector();
         modelCountEl.textContent = freeModels.length;
         console.log('Loaded ' + freeModels.length + ' free models');
       })
@@ -115,35 +145,149 @@
       });
   }
 
-  function populateModelDropdown() {
-    modelEl.innerHTML = '<option value="">Select a free model...</option>';
+  function populateModelSelector() {
+    modelsGrid.innerHTML = '';
     
     freeModels.forEach(function(model) {
-      var option = document.createElement('option');
-      option.value = model.id;
-      option.textContent = model.name + ' (' + model.id + ')';
-      modelEl.appendChild(option);
+      var card = createModelCard(model);
+      modelsGrid.appendChild(card);
     });
   }
 
-  function filterModels() {
-    var searchTerm = modelSearchEl.value.toLowerCase();
-    var options = modelEl.options;
+  function createModelCard(model) {
+    var card = document.createElement('div');
+    card.className = 'model-card';
+    card.dataset.modelId = model.id;
     
-    for (var i = 0; i < options.length; i++) {
-      var option = options[i];
-      var text = option.textContent.toLowerCase();
-      option.style.display = text.includes(searchTerm) ? '' : 'none';
+    // Determine model capabilities
+    var capabilities = getModelCapabilities(model);
+    var capabilityTags = capabilities.map(function(cap) {
+      return '<span class="capability-tag ' + cap + '">' + cap.charAt(0).toUpperCase() + cap.slice(1) + '</span>';
+    }).join('');
+    
+    // Get provider name
+    var provider = model.id.split('/')[0] || 'Unknown';
+    
+    // Format pricing info
+    var pricing = model.pricing || {};
+    var pricingText = 'Free';
+    if (pricing.prompt !== "0" || pricing.completion !== "0") {
+      pricingText = 'Paid';
+    }
+    
+    // Get context length
+    var contextLength = model.context_length || 'Unknown';
+    
+    card.innerHTML = 
+      '<div class="model-provider">' + provider + '</div>' +
+      '<div class="model-name">' + model.name + '</div>' +
+      '<div class="model-id">' + model.id + '</div>' +
+      '<div class="model-description">' + (model.description || 'No description available') + '</div>' +
+      '<div class="model-capabilities">' + capabilityTags + '</div>' +
+      '<div class="model-pricing">' + pricingText + '</div>' +
+      '<div class="model-context">Context: ' + contextLength + ' tokens</div>';
+    
+    // Add click handler
+    card.addEventListener('click', function() {
+      selectModel(model);
+    });
+    
+    return card;
+  }
+
+  function getModelCapabilities(model) {
+    var capabilities = ['text']; // All models support text
+    
+    // Check for image generation capabilities
+    if (model.id.toLowerCase().includes('image') || 
+        model.id.toLowerCase().includes('dall-e') ||
+        model.id.toLowerCase().includes('midjourney') ||
+        model.id.toLowerCase().includes('stable-diffusion') ||
+        model.id.toLowerCase().includes('gemini') && model.id.toLowerCase().includes('image')) {
+      capabilities.push('image');
+    }
+    
+    // Check for multimodal capabilities
+    if (model.id.toLowerCase().includes('vision') ||
+        model.id.toLowerCase().includes('multimodal') ||
+        model.id.toLowerCase().includes('gpt-4') ||
+        model.id.toLowerCase().includes('gemini') ||
+        model.id.toLowerCase().includes('claude')) {
+      capabilities.push('multimodal');
+    }
+    
+    return capabilities;
+  }
+
+  function selectModel(model) {
+    selectedModel = model;
+    selectedModelText.textContent = model.name;
+    modelSelectorModal.style.display = 'none';
+    
+    // Update the hidden select element for compatibility
+    modelEl.value = model.id;
+    
+    // Remove previous selection
+    var previousSelected = document.querySelector('.model-card.selected');
+    if (previousSelected) {
+      previousSelected.classList.remove('selected');
+    }
+    
+    // Add selection to current card
+    var currentCard = document.querySelector('[data-model-id="' + model.id + '"]');
+    if (currentCard) {
+      currentCard.classList.add('selected');
     }
   }
 
+  // Search and filter functionality for popup
+  function filterModelsPopup() {
+    var searchTerm = modelSearchPopup.value.toLowerCase();
+    var cards = document.querySelectorAll('.model-card');
+    
+    cards.forEach(function(card) {
+      var modelId = card.dataset.modelId;
+      var model = freeModels.find(function(m) { return m.id === modelId; });
+      if (!model) return;
+      
+      var matchesSearch = searchTerm === '' || 
+        model.name.toLowerCase().includes(searchTerm) ||
+        model.id.toLowerCase().includes(searchTerm) ||
+        (model.description && model.description.toLowerCase().includes(searchTerm)) ||
+        model.id.split('/')[0].toLowerCase().includes(searchTerm);
+      
+      var matchesFilter = currentFilter === 'all' || 
+        getModelCapabilities(model).includes(currentFilter);
+      
+      if (matchesSearch && matchesFilter) {
+        card.classList.remove('hidden');
+      } else {
+        card.classList.add('hidden');
+      }
+    });
+  }
+
   // Add search functionality
-  modelSearchEl.addEventListener('input', filterModels);
+  modelSearchPopup.addEventListener('input', filterModelsPopup);
+  
+  // Add filter button functionality
+  filterButtons.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      // Remove active class from all buttons
+      filterButtons.forEach(function(b) { b.classList.remove('active'); });
+      // Add active class to clicked button
+      this.classList.add('active');
+      // Update current filter
+      currentFilter = this.dataset.filter;
+      // Re-filter models
+      filterModelsPopup();
+    });
+  });
 
   // Add refresh button functionality
   refreshModelsBtn.addEventListener('click', function() {
     modelCountEl.textContent = 'Loading...';
-    modelEl.innerHTML = '<option value="">Loading models...</option>';
+    modelsGrid.innerHTML = '<div style="text-align: center; color: #9aa0aa; padding: 20px;">Loading models...</div>';
     fetchModels();
   });
 
@@ -153,11 +297,12 @@
   runBtn.addEventListener("click", function(){
     var key = (apiKeyEl.value || "").trim();
     var mode = modeEl.value;
-    var model = (modelEl.value || "").trim() || (mode === "image" ? "google/gemini-2.5-flash-image-preview" : "openrouter/auto");
+    var model = selectedModel ? selectedModel.id : (mode === "image" ? "google/gemini-2.5-flash-image-preview" : "openrouter/auto");
     var prompt = (promptEl.value || "").trim();
 
     if (!key) { alert("Please paste your OpenRouter API key."); return; }
     if (!prompt) { alert("Please write a prompt."); return; }
+    if (!selectedModel) { alert("Please select a model from the model selector."); return; }
 
     textOut.textContent = "";
     imgWrap.innerHTML = "";

@@ -35,10 +35,10 @@
         <div>
           <label>Model Selection</label>
           <div style="position: relative;">
-            <input id="modelSearch" type="text" placeholder="Search free models..." style="margin-bottom: 8px;" />
-            <select id="model" style="width: 100%;">
-              <option value="">Loading models...</option>
-            </select>
+            <button id="modelSelectorBtn" class="btn secondary" style="width: 100%; text-align: left; justify-content: space-between; display: flex; align-items: center;">
+              <span id="selectedModelText">Select a model...</span>
+              <span style="font-size: 12px;">▼</span>
+            </button>
           </div>
           <div class="muted small" style="margin-top:6px">
             <strong>Free Models:</strong> <span id="modelCount">Loading...</span> available free models. 
@@ -80,6 +80,30 @@
       <span class="modal-close">&times;</span>
       <img class="modal-content" id="modalImage">
       <div id="modalCaption" class="modal-caption"></div>
+    </div>
+
+    <!-- Modal for model selection -->
+    <div id="modelSelectorModal" class="modal">
+      <div class="modal-content model-selector-content">
+        <div class="modal-header">
+          <h2>Select Model</h2>
+          <span class="modal-close" id="modelModalClose">&times;</span>
+        </div>
+        <div class="modal-body">
+          <div class="search-section">
+            <input id="modelSearchPopup" type="text" placeholder="Search models by name, provider, or capabilities..." />
+            <div class="filter-buttons">
+              <button class="filter-btn active" data-filter="all">All</button>
+              <button class="filter-btn" data-filter="text">Text</button>
+              <button class="filter-btn" data-filter="image">Image</button>
+              <button class="filter-btn" data-filter="multimodal">Multimodal</button>
+            </div>
+          </div>
+          <div class="models-grid" id="modelsGrid">
+            <!-- Models will be populated here -->
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="muted small">
