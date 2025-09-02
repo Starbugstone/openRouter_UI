@@ -382,6 +382,22 @@ pre.out {
   font-size: 11px;
 }
 
+.model-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #2a2e37;
+}
+
+.metric-item {
+  color: #9aa0aa;
+  font-size: 10px;
+  font-family: monospace;
+  line-height: 1.2;
+}
+
 .model-provider {
   position: absolute;
   top: 8px;
@@ -396,6 +412,119 @@ pre.out {
 
 .model-card.hidden {
   display: none;
+}
+
+/* Model Controls Section */
+.model-controls-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 12px 0;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.model-toggle-section {
+  display: flex;
+  justify-content: center;
+  flex: 1;
+  min-width: 200px;
+}
+
+.toggle-container {
+  display: flex;
+  align-items: center;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-input {
+  display: none;
+}
+
+.toggle-slider {
+  position: relative;
+  width: 50px;
+  height: 28px;
+  background: #2a2e37;
+  border-radius: 14px;
+  transition: all 0.3s ease;
+  border: 1px solid #3a3e47;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  background: #9aa0aa;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-input:checked + .toggle-slider {
+  background: #2d7cff;
+  border-color: #2d7cff;
+}
+
+.toggle-input:checked + .toggle-slider::before {
+  transform: translateX(22px);
+  background: white;
+}
+
+.toggle-text {
+  color: #e8eaed;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Sort Section */
+.sort-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+  justify-content: center;
+}
+
+.sort-label {
+  color: #e8eaed;
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.sort-select {
+  background: #0e1015;
+  color: #e8eaed;
+  border: 1px solid #2a2e37;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 14px;
+  min-width: 160px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+.sort-select:focus {
+  outline: none;
+  border-color: #2d7cff;
+  box-shadow: 0 0 0 2px rgba(45, 124, 255, 0.2);
+}
+
+.sort-select:hover {
+  border-color: #3a3e47;
 }
 
 /* Chat Interface Styles */

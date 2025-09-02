@@ -16,7 +16,9 @@
       this.freeModels = [];
       this.selectedModel = null;
       this.currentFilter = 'all';
+      this.currentSort = 'newest'; // Default sort by newest
       this.isLoading = false;
+      this.includePaidModels = false; // Toggle state for paid models
       
       // DOM elements (will be injected)
       this.elements = {};
@@ -40,7 +42,7 @@
      * Setup event listeners for model management
      */
     setupEventListeners() {
-      const { modelSelectorBtn, modelModalClose, modelSelectorModal, modelSearchPopup, filterButtons, refreshModelsBtn } = this.elements;
+      const { modelSelectorBtn, modelModalClose, modelSelectorModal, modelSearchPopup, filterButtons, refreshModelsBtn, includePaidModelsToggle, modelSort } = this.elements;
 
       // Model selector modal
       if (modelSelectorBtn) {
@@ -93,6 +95,24 @@
       if (refreshModelsBtn) {
         DOMUtils.addEventListener(refreshModelsBtn, 'click', () => {
           this.refreshModels();
+        });
+      }
+
+      // Paid models toggle
+      if (includePaidModelsToggle) {
+        DOMUtils.addEventListener(includePaidModelsToggle, 'change', () => {
+          this.includePaidModels = includePaidModelsToggle.checked;
+          this.updateModelDisplay();
+          this.filterModels();
+        });
+      }
+
+      // Sort dropdown
+      if (modelSort) {
+        DOMUtils.addEventListener(modelSort, 'change', () => {
+          this.currentSort = modelSort.value;
+          this.updateModelDisplay();
+          this.filterModels();
         });
       }
 
@@ -189,8 +209,17 @@
       const { modelCountEl } = this.elements;
       
       if (modelCountEl) {
-        DOMUtils.setTextContent(modelCountEl, count !== undefined ? count : this.freeModels.length);
+        const currentCount = count !== undefined ? count : (this.includePaidModels ? this.allModels.length : this.freeModels.length);
+        DOMUtils.setTextContent(modelCountEl, currentCount);
       }
+    }
+
+    /**
+     * Update model display when toggle state changes
+     */
+    updateModelDisplay() {
+      this.populateModelSelector();
+      this.updateModelCount();
     }
 
     /**
@@ -203,10 +232,79 @@
       
       DOMUtils.setInnerHTML(modelsGrid, '');
       
-      this.freeModels.forEach(model => {
+      const modelsToShow = this.includePaidModels ? this.allModels : this.freeModels;
+      const sortedModels = this.sortModels(modelsToShow);
+      
+      sortedModels.forEach(model => {
         const card = this.createModelCard(model);
         modelsGrid.appendChild(card);
       });
+    }
+
+    /**
+     * Sort models based on current sort criteria
+     * @param {Array} models - Array of models to sort
+     * @returns {Array} Sorted array of models
+     */
+    sortModels(models) {
+      const sortedModels = [...models]; // Create a copy to avoid mutating original array
+      
+      switch (this.currentSort) {
+        case 'newest':
+          // Sort by creation date (newest first)
+          return sortedModels.sort((a, b) => {
+            const aCreated = a.created || 0;
+            const bCreated = b.created || 0;
+            if (aCreated !== bCreated) {
+              return bCreated - aCreated; // Newer first
+            }
+            return a.name.localeCompare(b.name);
+          });
+          
+        case 'oldest':
+          // Sort by creation date (oldest first)
+          return sortedModels.sort((a, b) => {
+            const aCreated = a.created || 0;
+            const bCreated = b.created || 0;
+            if (aCreated !== bCreated) {
+              return aCreated - bCreated; // Older first
+            }
+            return a.name.localeCompare(b.name);
+          });
+          
+        case 'context-high':
+          // Sort by context length (highest first)
+          return sortedModels.sort((a, b) => {
+            const aContext = a.context_length || 0;
+            const bContext = b.context_length || 0;
+            if (aContext !== bContext) {
+              return bContext - aContext; // Higher context first
+            }
+            return a.name.localeCompare(b.name);
+          });
+          
+        case 'context-low':
+          // Sort by context length (lowest first)
+          return sortedModels.sort((a, b) => {
+            const aContext = a.context_length || 0;
+            const bContext = b.context_length || 0;
+            if (aContext !== bContext) {
+              return aContext - bContext; // Lower context first
+            }
+            return a.name.localeCompare(b.name);
+          });
+          
+        case 'name':
+          // Sort alphabetically A-Z
+          return sortedModels.sort((a, b) => a.name.localeCompare(b.name));
+          
+        case 'name-desc':
+          // Sort alphabetically Z-A
+          return sortedModels.sort((a, b) => b.name.localeCompare(a.name));
+          
+        default:
+          return sortedModels.sort((a, b) => a.name.localeCompare(b.name));
+      }
     }
 
     /**
@@ -236,6 +334,9 @@
       // Get context length
       const contextLength = model.context_length || 'Unknown';
       
+      // Get creation date
+      const createdDate = model.created ? new Date(model.created * 1000).toLocaleDateString() : 'Unknown';
+      
       card.innerHTML = 
         `<div class="model-provider">${provider}</div>` +
         `<div class="model-name">${model.name}</div>` +
@@ -243,7 +344,10 @@
         `<div class="model-description">${model.description || 'No description available'}</div>` +
         `<div class="model-capabilities">${capabilityTags}</div>` +
         `<div class="model-pricing">${pricingText}</div>` +
-        `<div class="model-context">Context: ${contextLength} tokens</div>`;
+        `<div class="model-context">Context: ${contextLength} tokens</div>` +
+        `<div class="model-metrics">
+          <span class="metric-item">Created: ${createdDate}</span>
+        </div>`;
       
       // Add click handler
       DOMUtils.addEventListener(card, 'click', () => {
@@ -329,10 +433,12 @@
       
       const searchTerm = DOMUtils.getValue(modelSearchPopup).toLowerCase();
       const cards = document.querySelectorAll('.model-card');
+      const modelsToSearch = this.includePaidModels ? this.allModels : this.freeModels;
+      const sortedModels = this.sortModels(modelsToSearch);
       
       cards.forEach(card => {
         const modelId = card.dataset.modelId;
-        const model = this.freeModels.find(m => m.id === modelId);
+        const model = sortedModels.find(m => m.id === modelId);
         if (!model) return;
         
         const matchesSearch = searchTerm === '' || 
@@ -428,9 +534,22 @@
       const savedModel = this.loadSelectedModel();
       if (!savedModel) return;
 
-      // Find the model in the loaded models
-      const model = this.freeModels.find(m => m.id === savedModel.id);
+      // Find the model in all loaded models (both free and paid)
+      const model = this.allModels.find(m => m.id === savedModel.id);
       if (model) {
+        // Check if the model is free or paid
+        const isFree = this.freeModels.some(fm => fm.id === model.id);
+        
+        // If it's a paid model and we're not showing paid models, enable the toggle
+        if (!isFree && !this.includePaidModels) {
+          const { includePaidModelsToggle } = this.elements;
+          if (includePaidModelsToggle) {
+            includePaidModelsToggle.checked = true;
+            this.includePaidModels = true;
+            this.updateModelDisplay();
+          }
+        }
+        
         // Select the model without triggering the callback (to avoid infinite loops)
         this.selectedModel = model;
         

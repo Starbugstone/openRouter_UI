@@ -51,7 +51,7 @@
             </button>
           </div>
           <div class="muted small" style="margin-top:6px">
-            <strong>Free Models:</strong> <span id="modelCount">Loading...</span> available free models. 
+            <strong>Models:</strong> <span id="modelCount">Loading...</span> available models. 
             <button type="button" id="refreshModels" class="btn secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 8px;">Refresh</button><br/>
             <strong>Note:</strong> Multiple images (n>1) may not be supported by all models. Google Gemini typically generates 1 image per request.
           </div>
@@ -109,6 +109,28 @@
         <div class="modal-body">
           <div class="search-section">
             <input id="modelSearchPopup" type="text" placeholder="Search models by name, provider, or capabilities..." />
+            <div class="model-controls-section">
+              <div class="model-toggle-section">
+                <div class="toggle-container">
+                  <label class="toggle-label">
+                    <input type="checkbox" id="includePaidModels" class="toggle-input">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-text">Include paid models</span>
+                  </label>
+                </div>
+              </div>
+              <div class="sort-section">
+                <label class="sort-label">Sort by:</label>
+                <select id="modelSort" class="sort-select">
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="context-high">Context (Highest)</option>
+                  <option value="context-low">Context (Lowest)</option>
+                  <option value="name">Name (A-Z)</option>
+                  <option value="name-desc">Name (Z-A)</option>
+                </select>
+              </div>
+            </div>
             <div class="filter-buttons">
               <button class="filter-btn active" data-filter="all">All</button>
               <button class="filter-btn" data-filter="text">Text</button>

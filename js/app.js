@@ -79,6 +79,8 @@
         filterButtons: DOMUtils.querySelectorAll('.filter-btn'),
         modelCountEl: DOMUtils.getElementById('modelCount'),
         refreshModels: DOMUtils.getElementById('refreshModels'),
+        includePaidModelsToggle: DOMUtils.getElementById('includePaidModels'),
+        modelSort: DOMUtils.getElementById('modelSort'),
         
         // Image elements
         imageUploadBtn: DOMUtils.getElementById('imageUploadBtn'),
@@ -106,7 +108,9 @@
         filterButtons: this.elements.filterButtons,
         modelCountEl: this.elements.modelCountEl,
         refreshModels: this.elements.refreshModels,
-        selectedModelText: this.elements.selectedModelText
+        selectedModelText: this.elements.selectedModelText,
+        includePaidModelsToggle: this.elements.includePaidModelsToggle,
+        modelSort: this.elements.modelSort
       });
 
       // Initialize Chat Manager
