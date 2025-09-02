@@ -127,6 +127,9 @@
         this.populateModelSelector();
         this.updateModelCount();
         
+        // Restore previously selected model
+        this.restoreSelectedModel();
+        
         if (this.onModelsLoaded) {
           this.onModelsLoaded(this.freeModels);
         }
@@ -306,6 +309,9 @@
         currentCard.classList.add('selected');
       }
       
+      // Save selected model to localStorage
+      this.saveSelectedModel(model);
+      
       if (this.onModelSelected) {
         this.onModelSelected(model);
       }
@@ -382,6 +388,78 @@
      */
     setOnModelsLoaded(callback) {
       this.onModelsLoaded = callback;
+    }
+
+    /**
+     * Save selected model to localStorage
+     * @param {Object} model - Model to save
+     */
+    saveSelectedModel(model) {
+      try {
+        localStorage.setItem('or_selected_model', JSON.stringify({
+          id: model.id,
+          name: model.name
+        }));
+      } catch (e) {
+        console.warn('Failed to save selected model:', e);
+      }
+    }
+
+    /**
+     * Load selected model from localStorage
+     * @returns {Object|null} Saved model data or null
+     */
+    loadSelectedModel() {
+      try {
+        const saved = localStorage.getItem('or_selected_model');
+        return saved ? JSON.parse(saved) : null;
+      } catch (e) {
+        console.warn('Failed to load selected model:', e);
+        return null;
+      }
+    }
+
+    /**
+     * Restore previously selected model after models are loaded
+     */
+    restoreSelectedModel() {
+      const savedModel = this.loadSelectedModel();
+      if (!savedModel) return;
+
+      // Find the model in the loaded models
+      const model = this.freeModels.find(m => m.id === savedModel.id);
+      if (model) {
+        // Select the model without triggering the callback (to avoid infinite loops)
+        this.selectedModel = model;
+        
+        const { selectedModelText } = this.elements;
+        if (selectedModelText) {
+          DOMUtils.setTextContent(selectedModelText, model.name);
+        }
+        
+        // Add selection to the model card
+        const currentCard = document.querySelector(`[data-model-id="${model.id}"]`);
+        if (currentCard) {
+          currentCard.classList.add('selected');
+        }
+        
+        console.log('Restored previously selected model:', model.name);
+      } else {
+        console.log('Previously selected model not found in current model list:', savedModel.id);
+        // Clear the saved model if it's no longer available
+        this.clearSelectedModel();
+      }
+    }
+
+    /**
+     * Clear saved selected model from localStorage
+     */
+    clearSelectedModel() {
+      try {
+        localStorage.removeItem('or_selected_model');
+      } catch (e) {
+        console.warn('Failed to clear selected model:', e);
+      }
     }
   }
 

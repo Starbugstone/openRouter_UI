@@ -78,7 +78,32 @@
       if (!modal || !modalImg || !modalCaption) return;
       
       modalImg.src = imageSrc;
-      DOMUtils.setTextContent(modalCaption, `${caption} - Click outside or press Escape to close`);
+      
+      // Create caption with download button
+      const captionContent = document.createElement('div');
+      captionContent.style.cssText = 'display: flex; justify-content: space-between; align-items: center; gap: 10px;';
+      
+      const captionText = document.createElement('span');
+      captionText.textContent = `${caption} - Click outside or press Escape to close`;
+      
+      const downloadBtn = document.createElement('button');
+      downloadBtn.textContent = 'Download';
+      downloadBtn.className = 'btn secondary';
+      downloadBtn.style.cssText = 'padding: 6px 12px; font-size: 12px; white-space: nowrap;';
+      downloadBtn.title = 'Download image';
+      
+      // Add download functionality
+      DOMUtils.addEventListener(downloadBtn, 'click', () => {
+        this.downloadImage(imageSrc, caption);
+      });
+      
+      captionContent.appendChild(captionText);
+      captionContent.appendChild(downloadBtn);
+      
+      // Clear and set new content
+      modalCaption.innerHTML = '';
+      modalCaption.appendChild(captionContent);
+      
       DOMUtils.showElement(modal);
       
       this.activeModals.add('image');
@@ -94,6 +119,80 @@
         DOMUtils.hideElement(modal);
         this.activeModals.delete('image');
       }
+    }
+
+    /**
+     * Download image
+     * @param {string} imageSrc - Image source URL
+     * @param {string} caption - Image caption for filename
+     */
+    downloadImage(imageSrc, caption) {
+      try {
+        // Create a temporary anchor element
+        const link = document.createElement('a');
+        link.href = imageSrc;
+        
+        // Generate filename from caption
+        const filename = this.generateFilename(caption);
+        link.download = filename;
+        
+        // Set target to blank to avoid navigation
+        link.target = '_blank';
+        
+        // Append to body, click, and remove
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        console.log('Download initiated for:', filename);
+      } catch (error) {
+        console.error('Failed to download image:', error);
+        // Fallback: open image in new tab
+        window.open(imageSrc, '_blank');
+      }
+    }
+
+    /**
+     * Generate filename for download
+     * @param {string} caption - Image caption
+     * @returns {string} Generated filename
+     */
+    generateFilename(caption) {
+      // Clean caption and create filename
+      const cleanCaption = caption
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
+        .replace(/\s+/g, '-') // Replace spaces with hyphens
+        .replace(/-+/g, '-') // Replace multiple hyphens with single
+        .replace(/^-|-$/g, ''); // Remove leading/trailing hyphens
+      
+      // Add timestamp to make filename unique
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      
+      // Determine file extension based on image source
+      const extension = this.getImageExtension(caption);
+      
+      return `${cleanCaption || 'image'}-${timestamp}.${extension}`;
+    }
+
+    /**
+     * Get image file extension based on caption or default to jpg
+     * @param {string} caption - Image caption
+     * @returns {string} File extension
+     */
+    getImageExtension(caption) {
+      const lowerCaption = caption.toLowerCase();
+      
+      if (lowerCaption.includes('uploaded')) {
+        // For uploaded images, we can't determine the exact format from the caption
+        // Default to jpg as it's most common
+        return 'jpg';
+      } else if (lowerCaption.includes('generated')) {
+        // Generated images are typically jpg or png
+        return 'jpg';
+      }
+      
+      return 'jpg'; // Default fallback
     }
 
     /**

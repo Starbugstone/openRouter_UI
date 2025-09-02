@@ -38,7 +38,7 @@
       </div>
 
       <div class="row" style="margin-top:12px">
-        <div>
+        <div style="flex: 1 1 300px;">
           <label>Model Selection</label>
           <div style="position: relative;">
             <button id="modelSelectorBtn" class="btn secondary" style="width: 100%; text-align: left; justify-content: space-between; display: flex; align-items: center;">
@@ -52,9 +52,9 @@
             <strong>Note:</strong> Multiple images (n>1) may not be supported by all models. Google Gemini typically generates 1 image per request.
           </div>
         </div>
-        <div id="imageOptions" style="display:none">
+        <div id="imageOptions" style="display:none; flex: 0 0 auto; min-width: 120px;">
           <label>Number of images (best-effort)</label>
-          <input id="imgCount" type="number" min="1" max="4" value="1" />
+          <input id="imgCount" type="number" min="1" max="9" value="1" style="width: 3ch;" />
         </div>
       </div>
 

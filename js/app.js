@@ -195,6 +195,8 @@
           if (imageOptions) {
             DOMUtils.showElement(imageOptions, isImage ? 'block' : 'none');
           }
+          // Save mode to localStorage
+          this.saveMode();
         });
       }
     }
@@ -283,6 +285,9 @@
           DOMUtils.setValue(this.elements.apiKey, saved);
           DOMUtils.setChecked(this.elements.rememberKey, true);
         }
+        
+        // Load saved mode
+        this.loadMode();
       } catch (e) {
         console.warn('Failed to load settings:', e);
       }
@@ -763,6 +768,41 @@
       RegenerationManager.addResponseToHistory(`Error: ${message}`, []);
       
       APIService.cleanupStreamState();
+    }
+
+    /**
+     * Save mode to localStorage
+     */
+    saveMode() {
+      try {
+        const { mode } = this.elements;
+        if (mode) {
+          const modeValue = DOMUtils.getValue(mode);
+          localStorage.setItem('or_mode', modeValue);
+        }
+      } catch (e) {
+        console.warn('Failed to save mode:', e);
+      }
+    }
+
+    /**
+     * Load mode from localStorage
+     */
+    loadMode() {
+      try {
+        const saved = localStorage.getItem('or_mode');
+        if (saved && this.elements.mode && this.elements.imageOptions) {
+          DOMUtils.setValue(this.elements.mode, saved);
+          
+          // Update image options visibility based on saved mode
+          const isImage = saved === 'image';
+          DOMUtils.showElement(this.elements.imageOptions, isImage ? 'block' : 'none');
+          
+          console.log('Restored mode:', saved);
+        }
+      } catch (e) {
+        console.warn('Failed to load mode:', e);
+      }
     }
   }
 

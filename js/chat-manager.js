@@ -37,16 +37,16 @@
      * Setup event listeners for chat functionality
      */
     setupEventListeners() {
-      const { promptEl, sendBtn, clearChatBtn, stopBtn } = this.elements;
+      const { prompt, sendBtn, clearChatBtn, stopBtn } = this.elements;
 
       // Auto-resize textarea
-      if (promptEl) {
-        DOMUtils.addEventListener(promptEl, 'input', () => {
-          this.autoResizeTextarea(promptEl);
+      if (prompt) {
+        DOMUtils.addEventListener(prompt, 'input', () => {
+          this.autoResizeTextarea(prompt);
         });
 
         // Send message on Enter (but allow Shift+Enter for new lines)
-        DOMUtils.addEventListener(promptEl, 'keydown', (event) => {
+        DOMUtils.addEventListener(prompt, 'keydown', (event) => {
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             this.sendMessage();
@@ -193,7 +193,9 @@
         img.alt = isUploaded ? 'Uploaded image' : 'Generated image';
         
         DOMUtils.addEventListener(img, 'click', () => {
-          this.showImageModal(img.src, isUploaded ? 'Uploaded image' : 'Generated image');
+          if (window.ModalManager) {
+            ModalManager.showImageModal(img.src, isUploaded ? 'Uploaded image' : 'Generated image');
+          }
         });
         
         imagesDiv.appendChild(img);
@@ -202,20 +204,7 @@
       return imagesDiv;
     }
 
-    /**
-     * Show image in modal
-     * @param {string} src - Image source
-     * @param {string} caption - Image caption
-     */
-    showImageModal(src, caption) {
-      const { modal, modalImg, modalCaption } = this.elements;
-      
-      if (modal && modalImg && modalCaption) {
-        modalImg.src = src;
-        DOMUtils.setTextContent(modalCaption, `${caption} - Click outside or press Escape to close`);
-        DOMUtils.showElement(modal);
-      }
-    }
+
 
     /**
      * Hide regeneration controls on all previous assistant messages
@@ -392,7 +381,7 @@
     setStreamingState(streaming) {
       this.isStreaming = streaming;
       
-      const { sendBtn, promptEl, stopBtn } = this.elements;
+      const { sendBtn, prompt, stopBtn } = this.elements;
       
       if (sendBtn) {
         if (streaming) {
@@ -402,11 +391,11 @@
         }
       }
       
-      if (promptEl) {
+      if (prompt) {
         if (streaming) {
-          DOMUtils.disableElement(promptEl);
+          DOMUtils.disableElement(prompt);
         } else {
-          DOMUtils.enableElement(promptEl);
+          DOMUtils.enableElement(prompt);
         }
       }
       
