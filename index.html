@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>OpenRouter Mini Playground (v5 – robust streaming)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="wrap">
+    <h1>OpenRouter Mini Playground (v3)</h1>
+    <div class="muted small">
+      Serve this over <strong>http://localhost</strong> (not <code>file://</code>) so the browser sends a proper Origin/Referer.
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>OpenRouter API Key</label>
+          <input id="apiKey" type="password" placeholder="sk-or-v1-..." />
+          <div class="switch" style="margin-top:8px">
+            <label class="pill"><input id="rememberKey" type="checkbox" /> Remember key (localStorage)</label>
+          </div>
+        </div>
+        <div>
+          <label>Mode</label>
+          <select id="mode">
+            <option value="text">Text (Chat Completions)</option>
+            <option value="image">Image Generation (via Chat + modalities)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <div>
+          <label>Model Selection</label>
+          <div style="position: relative;">
+            <input id="modelSearch" type="text" placeholder="Search free models..." style="margin-bottom: 8px;" />
+            <select id="model" style="width: 100%;">
+              <option value="">Loading models...</option>
+            </select>
+          </div>
+          <div class="muted small" style="margin-top:6px">
+            <strong>Free Models:</strong> <span id="modelCount">Loading...</span> available free models. 
+            <button type="button" id="refreshModels" class="btn secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 8px;">Refresh</button><br/>
+            <strong>Note:</strong> Multiple images (n>1) may not be supported by all models. Google Gemini typically generates 1 image per request.
+          </div>
+        </div>
+        <div id="imageOptions" style="display:none">
+          <label>Number of images (best-effort)</label>
+          <input id="imgCount" type="number" min="1" max="4" value="1" />
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <div>
+          <label>Prompt</label>
+          <textarea id="prompt" placeholder="Describe the image you want, or type a normal text prompt..."></textarea>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top:12px">
+        <button class="btn" id="runBtn">Run</button>
+        <button class="btn secondary" id="stopBtn">Stop</button>
+        <button class="btn secondary" id="clearBtn">Clear</button>
+        <label class="pill"><input id="stream" type="checkbox" checked /> Stream</label>
+        <label class="pill">Timeout (s): <input id="timeoutSec" type="number" min="5" max="120" value="30" style="width:64px;background:transparent;border:none;color:#e8eaed"/></label>
+        <span class="muted small">If a stream hangs, use <em>Stop</em> or disable streaming.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Output</label>
+      <pre id="textOut" class="out"></pre>
+      <div id="images" class="imgs"></div>
+    </div>
+
+    <!-- Modal for full-screen image viewing -->
+    <div id="imageModal" class="modal">
+      <span class="modal-close">&times;</span>
+      <img class="modal-content" id="modalImage">
+      <div id="modalCaption" class="modal-caption"></div>
+    </div>
+
+    <div class="muted small">
+      Docs: <a href="https://openrouter.ai/docs/quickstart" target="_blank" rel="noopener">Quickstart</a> ·
+      <a href="https://openrouter.ai/docs/features/multimodal/image-generation" target="_blank" rel="noopener">Image Gen via chat</a> ·
+      <a href="https://openrouter.ai/models" target="_blank" rel="noopener">Models</a>
+    </div>
+  </div>
+
+  <script src="js/script.js"></script>
+</body>
+</html>
