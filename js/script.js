@@ -3,13 +3,11 @@
   var apiKeyEl = $("apiKey");
   var rememberEl = $("rememberKey");
   var modeEl = $("mode");
-  var modelEl = $("model");
   var promptEl = $("prompt");
-  var runBtn = $("runBtn");
+  var sendBtn = $("sendBtn");
   var stopBtn = $("stopBtn");
-  var clearBtn = $("clearBtn");
-  var textOut = $("textOut");
-  var imgWrap = $("images");
+  var clearChatBtn = $("clearChatBtn");
+  var chatMessages = $("chatMessages");
   var streamEl = $("stream");
   var imageOptions = $("imageOptions");
   var imgCountEl = $("imgCount");
@@ -17,7 +15,6 @@
   var modal = $("imageModal");
   var modalImg = $("modalImage");
   var modalCaption = $("modalCaption");
-  var modelSearchEl = $("modelSearch");
   var modelCountEl = $("modelCount");
   var refreshModelsBtn = $("refreshModels");
   
@@ -37,6 +34,10 @@
   var freeModels = [];
   var selectedModel = null;
   var currentFilter = 'all';
+  
+  // Chat state
+  var messageHistory = [];
+  var currentTypingIndicator = null;
 
   try {
     var saved = localStorage.getItem("or_api_key");
@@ -56,13 +57,10 @@
   modeEl.addEventListener("change", function(){
     var isImage = modeEl.value === "image";
     imageOptions.style.display = isImage ? "block" : "none";
-    textOut.textContent = "";
-    imgWrap.innerHTML = "";
   });
 
-  clearBtn.addEventListener("click", function(){
-    textOut.textContent = "";
-    imgWrap.innerHTML = "";
+  clearChatBtn.addEventListener("click", function(){
+    clearChat();
   });
 
   stopBtn.addEventListener("click", function(){
@@ -112,6 +110,23 @@
     }
   });
 
+  // Auto-resize textarea
+  promptEl.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  });
+
+  // Send message on Enter (but allow Shift+Enter for new lines)
+  promptEl.addEventListener('keydown', function(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      sendMessage();
+    }
+  });
+
+  // Send button click
+  sendBtn.addEventListener("click", sendMessage);
+
   // Fetch and populate models
   function fetchModels() {
     fetch('https://openrouter.ai/api/v1/models')
@@ -140,7 +155,6 @@
       })
       .catch(function(error) {
         console.error('Error fetching models:', error);
-        modelEl.innerHTML = '<option value="">Error loading models</option>';
         modelCountEl.textContent = 'Error';
       });
   }
@@ -224,9 +238,6 @@
     selectedModelText.textContent = model.name;
     modelSelectorModal.style.display = 'none';
     
-    // Update the hidden select element for compatibility
-    modelEl.value = model.id;
-    
     // Remove previous selection
     var previousSelected = document.querySelector('.model-card.selected');
     if (previousSelected) {
@@ -294,18 +305,26 @@
   // Load models on page load
   fetchModels();
 
-  runBtn.addEventListener("click", function(){
+  // Chat functionality
+  function sendMessage() {
     var key = (apiKeyEl.value || "").trim();
     var mode = modeEl.value;
     var model = selectedModel ? selectedModel.id : (mode === "image" ? "google/gemini-2.5-flash-image-preview" : "openrouter/auto");
     var prompt = (promptEl.value || "").trim();
 
     if (!key) { alert("Please paste your OpenRouter API key."); return; }
-    if (!prompt) { alert("Please write a prompt."); return; }
+    if (!prompt) { alert("Please write a message."); return; }
     if (!selectedModel) { alert("Please select a model from the model selector."); return; }
 
-    textOut.textContent = "";
-    imgWrap.innerHTML = "";
+    // Add user message to chat
+    addMessageToChat('user', prompt);
+    
+    // Clear input
+    promptEl.value = '';
+    promptEl.style.height = 'auto';
+    
+    // Show typing indicator
+    showTypingIndicator();
 
     var n = 1; if (mode === "image"){ n = parseInt(imgCountEl.value || 1, 10); if (isNaN(n)) n = 1; n = Math.min(Math.max(n,1),4); }
 
@@ -322,12 +341,96 @@
     } else {
       runImageViaChat(key, model, prompt, n, doStream, tsec).catch(reportErr);
     }
-  });
+  }
+
+  function addMessageToChat(role, content, images) {
+    var messageDiv = document.createElement('div');
+    messageDiv.className = 'message ' + role;
+    
+    var contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    contentDiv.textContent = content;
+    
+    var timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    timeDiv.textContent = new Date().toLocaleTimeString();
+    
+    messageDiv.appendChild(contentDiv);
+    
+    // Add images if provided
+    if (images && images.length > 0) {
+      var imagesDiv = document.createElement('div');
+      imagesDiv.className = 'message-images';
+      
+      images.forEach(function(src) {
+        var img = document.createElement('img');
+        img.src = src;
+        img.alt = 'Generated image';
+        img.addEventListener('click', function() {
+          modalImg.src = src;
+          modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+          modal.style.display = "block";
+        });
+        imagesDiv.appendChild(img);
+      });
+      
+      messageDiv.appendChild(imagesDiv);
+    }
+    
+    messageDiv.appendChild(timeDiv);
+    chatMessages.appendChild(messageDiv);
+    
+    // Scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+    
+    // Store in message history
+    messageHistory.push({
+      role: role,
+      content: content,
+      images: images || [],
+      timestamp: new Date()
+    });
+    
+    // Return the message div for potential updates
+    return messageDiv;
+  }
+
+  function showTypingIndicator() {
+    hideTypingIndicator();
+    
+    var typingDiv = document.createElement('div');
+    typingDiv.className = 'message assistant typing-indicator';
+    typingDiv.innerHTML = 
+      '<div class="message-content">' +
+        '<div class="typing-dots">' +
+          '<span></span><span></span><span></span>' +
+        '</div>' +
+        'Assistant is typing...' +
+      '</div>';
+    
+    chatMessages.appendChild(typingDiv);
+    currentTypingIndicator = typingDiv;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  function hideTypingIndicator() {
+    if (currentTypingIndicator) {
+      currentTypingIndicator.remove();
+      currentTypingIndicator = null;
+    }
+  }
+
+  function clearChat() {
+    chatMessages.innerHTML = '';
+    messageHistory = [];
+    hideTypingIndicator();
+  }
 
   function reportErr(err){
     console.error(err);
+    hideTypingIndicator();
     var msg = (err && err.message) ? err.message : String(err);
-    textOut.textContent = (textOut.textContent ? textOut.textContent + "\n" : "") + "Error: " + msg;
+    addMessageToChat('assistant', "Error: " + msg);
     cleanupStreamState();
   }
 
@@ -338,22 +441,27 @@
     var tsec = parseInt(timeoutEl.value || 30, 10); if (isNaN(tsec)) tsec = 30;
     clearTimeout(timeoutHandle);
     timeoutHandle = setTimeout(function(){ abortActive("Timed out"); }, tsec * 1000);
-    stopBtn.disabled = false;
-    runBtn.disabled = true;
+    stopBtn.style.display = 'inline-block';
+    sendBtn.disabled = true;
+    promptEl.disabled = true;
   }
 
   function cleanupStreamState(){
     streamingActive = false;
     clearTimeout(timeoutHandle);
     timeoutHandle = null;
-    runBtn.disabled = false;
-    stopBtn.disabled = true;
+    sendBtn.disabled = false;
+    promptEl.disabled = false;
+    stopBtn.style.display = 'none';
   }
 
   function abortActive(reason){
     if (currentController){ try { currentController.abort(); } catch(e){} }
     currentController = null;
-    if (reason){ textOut.textContent = (textOut.textContent ? textOut.textContent + "\n" : "") + "[Stream closed: " + reason + "]"; }
+    if (reason){ 
+      hideTypingIndicator();
+      addMessageToChat('assistant', "[Stream closed: " + reason + "]");
+    }
     cleanupStreamState();
   }
 
@@ -395,33 +503,6 @@
       }
     }
     return out;
-  }
-
-  function addImg(src){
-    console.log("Adding image:", src.substring(0, 50) + "...");
-    var img = document.createElement("img");
-    img.src = src; 
-    img.alt = "Generated image";
-    img.onload = function(){ 
-      console.log("Image loaded successfully");
-      // Add a visual indicator that an image was loaded
-      if (imgWrap.children.length === 1) {
-        textOut.textContent += "\n[Image loaded successfully]";
-      }
-    };
-    img.onerror = function(){ 
-      console.error("Image failed to load:", src);
-      textOut.textContent += "\n[Image failed to load]";
-    };
-    
-    // Add click handler to open modal
-    img.addEventListener("click", function(){
-      modalImg.src = src;
-      modalCaption.textContent = "Generated image - Click outside or press Escape to close";
-      modal.style.display = "block";
-    });
-    
-    imgWrap.appendChild(img);
   }
 
   function parseJsonOrThrow(res){
@@ -474,7 +555,21 @@
   }
 
   function runChat(key, model, prompt, stream, tsec){
-    var body = { model: model, messages: [{ role: "user", content: prompt }], stream: stream };
+    // Build messages array with conversation history
+    var messages = [];
+    
+    // Add all previous messages to maintain context
+    messageHistory.forEach(function(msg) {
+      messages.push({
+        role: msg.role,
+        content: msg.content
+      });
+    });
+    
+    // Add the current user message
+    messages.push({ role: "user", content: prompt });
+    
+    var body = { model: model, messages: messages, stream: stream };
     var url = "https://openrouter.ai/api/v1/chat/completions";
 
     if (!stream){
@@ -488,8 +583,10 @@
         },
         body: JSON.stringify(body)
       }).then(parseJsonOrThrow).then(function(json){
+        hideTypingIndicator();
         var content = pickText(json.choices && json.choices[0] && json.choices[0].message) || "";
-        textOut.textContent = content || "[Empty response]";
+        addMessageToChat('assistant', content || "[Empty response]");
+        cleanupStreamState();
       });
     }
 
@@ -505,31 +602,115 @@
       body: JSON.stringify(body),
       signal: currentController.signal
     }).then(function(res){
+      hideTypingIndicator();
+      var assistantMessageDiv = null;
+      var assistantContent = '';
+      var assistantImages = [];
+      
       return readSSE(res, function(chunk){
         if (chunk && chunk.json && chunk.fallback){
           // server returned JSON instead of SSE
           var content = pickText(chunk.json.choices && chunk.json.choices[0] && chunk.json.choices[0].message) || "";
-          textOut.textContent = content || "[Empty response]";
+          addMessageToChat('assistant', content || "[Empty response]");
           return;
         }
         var choice = chunk.choices && chunk.choices[0];
         var fin = choice ? choice.finish_reason : null;
-        if (fin === "content_filter"){ textOut.textContent += "\n[Blocked by content filter]"; }
+        if (fin === "content_filter"){ 
+          if (!assistantMessageDiv) {
+            assistantMessageDiv = addMessageToChat('assistant', '[Blocked by content filter]');
+          }
+        }
         var delta = choice ? choice.delta : null;
-        if (delta && typeof delta.content === 'string'){ textOut.textContent += delta.content; }
+        if (delta && typeof delta.content === 'string'){ 
+          assistantContent += delta.content;
+          if (!assistantMessageDiv) {
+            // Create the message div once with empty content
+            assistantMessageDiv = addMessageToChat('assistant', '');
+          }
+          // Update existing message
+          var contentDiv = assistantMessageDiv.querySelector('.message-content');
+          contentDiv.textContent = assistantContent;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
         if (delta && delta.content && delta.content.length){
           for (var i=0;i<delta.content.length;i++){
             var part = delta.content[i];
-            if (part && part.type === 'output_text' && part.text){ textOut.textContent += part.text; }
-            if (part && part.type === 'output_image' && part.image_url && part.image_url.url){ addImg(part.image_url.url); }
+            if (part && part.type === 'output_text' && part.text){ 
+              assistantContent += part.text;
+              if (!assistantMessageDiv) {
+                // Create the message div once with empty content
+                assistantMessageDiv = addMessageToChat('assistant', '');
+              }
+              // Update existing message
+              var contentDiv = assistantMessageDiv.querySelector('.message-content');
+              contentDiv.textContent = assistantContent;
+              chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+            if (part && part.type === 'output_image' && part.image_url && part.image_url.url){ 
+              assistantImages.push(part.image_url.url);
+            }
           }
         }
-      }, function(){ cleanupStreamState(); });
+      }, function(){ 
+        // Add images to the assistant message if any were generated
+        if (assistantImages.length > 0 && assistantMessageDiv) {
+          var imagesDiv = document.createElement('div');
+          imagesDiv.className = 'message-images';
+          
+          assistantImages.forEach(function(src) {
+            var img = document.createElement('img');
+            img.src = src;
+            img.alt = 'Generated image';
+            img.addEventListener('click', function() {
+              modalImg.src = src;
+              modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+              modal.style.display = "block";
+            });
+            imagesDiv.appendChild(img);
+          });
+          
+          assistantMessageDiv.appendChild(imagesDiv);
+        }
+        
+        // Update message history with the complete assistant response
+        if (assistantMessageDiv && assistantContent) {
+          // Remove the temporary empty message from history if it exists
+          var lastMessageIndex = messageHistory.length - 1;
+          if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant' && messageHistory[lastMessageIndex].content === '') {
+            messageHistory[lastMessageIndex].content = assistantContent;
+            messageHistory[lastMessageIndex].images = assistantImages;
+          } else {
+            messageHistory.push({
+              role: 'assistant',
+              content: assistantContent,
+              images: assistantImages,
+              timestamp: new Date()
+            });
+          }
+        }
+        
+        cleanupStreamState(); 
+      });
     }).catch(function(err){ cleanupStreamState(); throw err; });
   }
 
   function runImageViaChat(key, model, prompt, n, stream, tsec){
-    var body = { model: model, messages: [{ role: "user", content: prompt }], modalities: ["image","text"], n: n, stream: stream };
+    // Build messages array with conversation history
+    var messages = [];
+    
+    // Add all previous messages to maintain context
+    messageHistory.forEach(function(msg) {
+      messages.push({
+        role: msg.role,
+        content: msg.content
+      });
+    });
+    
+    // Add the current user message
+    messages.push({ role: "user", content: prompt });
+    
+    var body = { model: model, messages: messages, modalities: ["image","text"], n: n, stream: stream };
     var url = "https://openrouter.ai/api/v1/chat/completions";
     
     // Debug: Log the request being sent
@@ -546,22 +727,23 @@
         },
         body: JSON.stringify(body)
       }).then(parseJsonOrThrow).then(function(json){
+        hideTypingIndicator();
         // Process all choices for multiple images
-        var totalImages = 0;
+        var totalImages = [];
         if (json.choices && json.choices.length > 0) {
           for (var c = 0; c < json.choices.length; c++) {
             var message = json.choices[c] && json.choices[c].message;
             var imgs = extractImagesFromMessage(message);
-            for (var i=0;i<imgs.length;i++) {
-              addImg(imgs[i]);
-              totalImages++;
-            }
+            totalImages = totalImages.concat(imgs);
           }
         }
-        if (totalImages === 0) {
+        if (totalImages.length === 0) {
           var txt = pickText(json.choices && json.choices[0] && json.choices[0].message);
-          textOut.textContent = txt ? txt : "No images found in response.";
+          addMessageToChat('assistant', txt ? txt : "No images found in response.");
+        } else {
+          addMessageToChat('assistant', "Generated " + totalImages.length + " image(s):", totalImages);
         }
+        cleanupStreamState();
       });
     }
 
@@ -577,6 +759,11 @@
       body: JSON.stringify(body),
       signal: currentController.signal
     }).then(function(res){
+      hideTypingIndicator();
+      var assistantMessageDiv = null;
+      var assistantContent = '';
+      var assistantImages = [];
+      
       return readSSE(res, function(chunk){
         // Debug logging for image chunks
         if (chunk && chunk.choices) {
@@ -589,11 +776,13 @@
             for (var c = 0; c < chunk.json.choices.length; c++) {
               var message = chunk.json.choices[c] && chunk.json.choices[c].message;
               var imgs = extractImagesFromMessage(message);
-              for (var i=0;i<imgs.length;i++) addImg(imgs[i]);
+              assistantImages = assistantImages.concat(imgs);
             }
-            if (imgWrap.children.length === 0) {
+            if (assistantImages.length === 0) {
               var txt = pickText(chunk.json.choices[0] && chunk.json.choices[0].message);
-              textOut.textContent = txt ? txt : "No images found in response.";
+              addMessageToChat('assistant', txt ? txt : "No images found in response.");
+            } else {
+              addMessageToChat('assistant', "Generated " + assistantImages.length + " image(s):", assistantImages);
             }
           }
           return;
@@ -605,7 +794,9 @@
             var choice = chunk.choices[choiceIndex];
             var fin = choice ? choice.finish_reason : null;
             if (fin === "content_filter"){ 
-              textOut.textContent += "\n[Blocked by content filter]"; 
+              if (!assistantMessageDiv) {
+                assistantMessageDiv = addMessageToChat('assistant', '[Blocked by content filter]');
+              }
             }
             var delta = choice ? choice.delta : null;
             
@@ -616,7 +807,7 @@
                 var img = choice.message.images[k];
                 if (img && img.image_url && img.image_url.url){
                   console.log("Adding image from choice.message.images:", img.image_url.url);
-                  addImg(img.image_url.url);
+                  assistantImages.push(img.image_url.url);
                 }
               }
             }
@@ -628,7 +819,7 @@
                 var img = delta.images[m];
                 if (img && img.type === 'image_url' && img.image_url && img.image_url.url){
                   console.log("Adding image from delta.images:", img.image_url.url);
-                  addImg(img.image_url.url);
+                  assistantImages.push(img.image_url.url);
                 }
               }
             }
@@ -636,16 +827,65 @@
             if (delta && delta.content && delta.content.length){
               for (var i=0;i<delta.content.length;i++){
                 var part = delta.content[i];
-                if (part && part.type === 'output_text' && part.text){ textOut.textContent += part.text; }
+                if (part && part.type === 'output_text' && part.text){ 
+                  assistantContent += part.text;
+                  if (!assistantMessageDiv) {
+                    // Create the message div once with empty content
+                    assistantMessageDiv = addMessageToChat('assistant', '');
+                  }
+                  // Update existing message
+                  var contentDiv = assistantMessageDiv.querySelector('.message-content');
+                  contentDiv.textContent = assistantContent;
+                  chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
                 if (part && part.type === 'output_image' && part.image_url && part.image_url.url){ 
                   console.log("Adding image from delta content:", part.image_url.url);
-                  addImg(part.image_url.url); 
+                  assistantImages.push(part.image_url.url);
                 }
               }
             }
           }
         }
-      }, function(){ cleanupStreamState(); });
+      }, function(){ 
+        // Add images to the assistant message if any were generated
+        if (assistantImages.length > 0 && assistantMessageDiv) {
+          var imagesDiv = document.createElement('div');
+          imagesDiv.className = 'message-images';
+          
+          assistantImages.forEach(function(src) {
+            var img = document.createElement('img');
+            img.src = src;
+            img.alt = 'Generated image';
+            img.addEventListener('click', function() {
+              modalImg.src = src;
+              modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+              modal.style.display = "block";
+            });
+            imagesDiv.appendChild(img);
+          });
+          
+          assistantMessageDiv.appendChild(imagesDiv);
+        }
+        
+        // Update message history with the complete assistant response
+        if (assistantMessageDiv && assistantContent) {
+          // Remove the temporary empty message from history if it exists
+          var lastMessageIndex = messageHistory.length - 1;
+          if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant' && messageHistory[lastMessageIndex].content === '') {
+            messageHistory[lastMessageIndex].content = assistantContent;
+            messageHistory[lastMessageIndex].images = assistantImages;
+          } else {
+            messageHistory.push({
+              role: 'assistant',
+              content: assistantContent,
+              images: assistantImages,
+              timestamp: new Date()
+            });
+          }
+        }
+        
+        cleanupStreamState(); 
+      });
     }).catch(function(err){ cleanupStreamState(); throw err; });
   }
 })();

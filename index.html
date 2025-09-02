@@ -52,27 +52,29 @@
         </div>
       </div>
 
-      <div class="row" style="margin-top:12px">
-        <div>
-          <label>Prompt</label>
-          <textarea id="prompt" placeholder="Describe the image you want, or type a normal text prompt..."></textarea>
-        </div>
-      </div>
-
       <div class="actions" style="margin-top:12px">
-        <button class="btn" id="runBtn">Run</button>
-        <button class="btn secondary" id="stopBtn">Stop</button>
-        <button class="btn secondary" id="clearBtn">Clear</button>
+        <button class="btn secondary" id="clearChatBtn">Clear Chat</button>
         <label class="pill"><input id="stream" type="checkbox" checked /> Stream</label>
         <label class="pill">Timeout (s): <input id="timeoutSec" type="number" min="5" max="120" value="30" style="width:64px;background:transparent;border:none;color:#e8eaed"/></label>
         <span class="muted small">If a stream hangs, use <em>Stop</em> or disable streaming.</span>
       </div>
     </div>
 
-    <div class="card">
-      <label>Output</label>
-      <pre id="textOut" class="out"></pre>
-      <div id="images" class="imgs"></div>
+    <!-- Chat Interface -->
+    <div class="card chat-container">
+      <div class="chat-header">
+        <label>Chat</label>
+        <div class="chat-actions">
+          <button class="btn secondary" id="stopBtn" style="display:none;">Stop</button>
+        </div>
+      </div>
+      <div id="chatMessages" class="chat-messages"></div>
+      <div class="chat-input-container">
+        <div class="chat-input-wrapper">
+          <textarea id="prompt" placeholder="Type your message here..." rows="1"></textarea>
+          <button class="btn" id="sendBtn">Send</button>
+        </div>
+      </div>
     </div>
 
     <!-- Modal for full-screen image viewing -->
