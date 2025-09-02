@@ -26,6 +26,9 @@
   var modelSearchPopup = $("modelSearchPopup");
   var modelsGrid = $("modelsGrid");
   var filterButtons = document.querySelectorAll('.filter-btn');
+  var imageUploadBtn = $("imageUploadBtn");
+  var imageUpload = $("imageUpload");
+  var imagePreview = $("imagePreview");
 
   var currentController = null;
   var streamingActive = false;
@@ -38,6 +41,7 @@
   // Chat state
   var messageHistory = [];
   var currentTypingIndicator = null;
+  var uploadedImages = [];
 
   try {
     var saved = localStorage.getItem("or_api_key");
@@ -126,6 +130,23 @@
 
   // Send button click
   sendBtn.addEventListener("click", sendMessage);
+
+  // Image upload functionality
+  imageUploadBtn.addEventListener("click", function() {
+    imageUpload.click();
+  });
+
+  imageUpload.addEventListener("change", function(event) {
+    var files = event.target.files;
+    for (var i = 0; i < files.length; i++) {
+      var file = files[i];
+      if (file.type.startsWith('image/')) {
+        addImagePreview(file);
+      }
+    }
+    // Clear the input so the same file can be selected again
+    event.target.value = '';
+  });
 
   // Fetch and populate models
   function fetchModels() {
@@ -313,15 +334,16 @@
     var prompt = (promptEl.value || "").trim();
 
     if (!key) { alert("Please paste your OpenRouter API key."); return; }
-    if (!prompt) { alert("Please write a message."); return; }
+    if (!prompt && uploadedImages.length === 0) { alert("Please write a message or upload an image."); return; }
     if (!selectedModel) { alert("Please select a model from the model selector."); return; }
 
-    // Add user message to chat
-    addMessageToChat('user', prompt);
+    // Add user message to chat with uploaded images
+    addMessageToChat('user', prompt, uploadedImages, true);
     
-    // Clear input
+    // Clear input and images
     promptEl.value = '';
     promptEl.style.height = 'auto';
+    clearImagePreview();
     
     // Show typing indicator
     showTypingIndicator();
@@ -343,7 +365,7 @@
     }
   }
 
-  function addMessageToChat(role, content, images) {
+  function addMessageToChat(role, content, images, isUploaded) {
     var messageDiv = document.createElement('div');
     messageDiv.className = 'message ' + role;
     
@@ -362,13 +384,14 @@
       var imagesDiv = document.createElement('div');
       imagesDiv.className = 'message-images';
       
-      images.forEach(function(src) {
+      images.forEach(function(imgData) {
         var img = document.createElement('img');
-        img.src = src;
-        img.alt = 'Generated image';
+        // Handle both uploaded images (base64 data) and generated images (URLs)
+        img.src = typeof imgData === 'string' ? imgData : imgData.data;
+        img.alt = isUploaded ? 'Uploaded image' : 'Generated image';
         img.addEventListener('click', function() {
-          modalImg.src = src;
-          modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+          modalImg.src = img.src;
+          modalCaption.textContent = (isUploaded ? "Uploaded image" : "Generated image") + " - Click outside or press Escape to close";
           modal.style.display = "block";
         });
         imagesDiv.appendChild(img);
@@ -424,6 +447,50 @@
     chatMessages.innerHTML = '';
     messageHistory = [];
     hideTypingIndicator();
+    clearImagePreview();
+  }
+
+  function addImagePreview(file) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var previewItem = document.createElement('div');
+      previewItem.className = 'image-preview-item';
+      
+      var img = document.createElement('img');
+      img.src = e.target.result;
+      img.alt = 'Preview';
+      
+      var removeBtn = document.createElement('button');
+      removeBtn.className = 'remove-btn';
+      removeBtn.innerHTML = '×';
+      removeBtn.addEventListener('click', function() {
+        removeImagePreview(previewItem, e.target.result);
+      });
+      
+      previewItem.appendChild(img);
+      previewItem.appendChild(removeBtn);
+      imagePreview.appendChild(previewItem);
+      
+      // Store the image data
+      uploadedImages.push({
+        data: e.target.result,
+        file: file
+      });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function removeImagePreview(previewItem, imageData) {
+    previewItem.remove();
+    // Remove from uploadedImages array
+    uploadedImages = uploadedImages.filter(function(img) {
+      return img.data !== imageData;
+    });
+  }
+
+  function clearImagePreview() {
+    imagePreview.innerHTML = '';
+    uploadedImages = [];
   }
 
   function reportErr(err){
@@ -560,10 +627,42 @@
     
     // Add all messages from history (including the current user message that was just added)
     messageHistory.forEach(function(msg) {
-      messages.push({
-        role: msg.role,
-        content: msg.content
-      });
+      var messageContent = msg.content;
+      
+      // If message has images, create multimodal content
+      if (msg.images && msg.images.length > 0) {
+        var content = [];
+        
+        // Add text content if present
+        if (msg.content && msg.content.trim()) {
+          content.push({
+            type: "text",
+            text: msg.content
+          });
+        }
+        
+        // Add images
+        msg.images.forEach(function(imgData) {
+          var imageUrl = typeof imgData === 'string' ? imgData : imgData.data;
+          content.push({
+            type: "image_url",
+            image_url: {
+              url: imageUrl
+            }
+          });
+        });
+        
+        messages.push({
+          role: msg.role,
+          content: content
+        });
+      } else {
+        // Regular text message
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      }
     });
     
     var body = { model: model, messages: messages, stream: stream };
@@ -705,10 +804,42 @@
     
     // Add all messages from history (including the current user message that was just added)
     messageHistory.forEach(function(msg) {
-      messages.push({
-        role: msg.role,
-        content: msg.content
-      });
+      var messageContent = msg.content;
+      
+      // If message has images, create multimodal content
+      if (msg.images && msg.images.length > 0) {
+        var content = [];
+        
+        // Add text content if present
+        if (msg.content && msg.content.trim()) {
+          content.push({
+            type: "text",
+            text: msg.content
+          });
+        }
+        
+        // Add images
+        msg.images.forEach(function(imgData) {
+          var imageUrl = typeof imgData === 'string' ? imgData : imgData.data;
+          content.push({
+            type: "image_url",
+            image_url: {
+              url: imageUrl
+            }
+          });
+        });
+        
+        messages.push({
+          role: msg.role,
+          content: content
+        });
+      } else {
+        // Regular text message
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      }
     });
     
     var body = { model: model, messages: messages, modalities: ["image","text"], n: n, stream: stream };

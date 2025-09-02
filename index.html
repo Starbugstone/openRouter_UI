@@ -71,9 +71,14 @@
       <div id="chatMessages" class="chat-messages"></div>
       <div class="chat-input-container">
         <div class="chat-input-wrapper">
-          <textarea id="prompt" placeholder="Type your message here..." rows="1"></textarea>
+          <div class="input-controls">
+            <input type="file" id="imageUpload" accept="image/*" multiple style="display: none;">
+            <button class="btn secondary" id="imageUploadBtn" title="Upload images">📷</button>
+            <textarea id="prompt" placeholder="Type your message here..." rows="1"></textarea>
+          </div>
           <button class="btn" id="sendBtn">Send</button>
         </div>
+        <div id="imagePreview" class="image-preview"></div>
       </div>
     </div>
 
