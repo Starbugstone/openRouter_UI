@@ -458,6 +458,18 @@
           ChatManager.updateLastAssistantMessage(assistantContent);
         }
         
+        // Handle images in delta.images array (for models that generate images in text mode)
+        if (delta?.images?.length) {
+          for (const img of delta.images) {
+            if (img?.type === 'image_url' && img.image_url?.url) {
+              assistantImages.push(img.image_url.url);
+              if (!assistantMessageDiv) {
+                assistantMessageDiv = ChatManager.addMessageToChat('assistant', '');
+              }
+            }
+          }
+        }
+        
         if (delta?.content?.length) {
           for (const part of delta.content) {
             if (part?.type === 'output_text' && part.text) {

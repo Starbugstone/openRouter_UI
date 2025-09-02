@@ -302,11 +302,11 @@
         }
       }
 
-      // Check images array
+      // Check images array (for models that generate images in text mode)
       if (message.images && message.images.length) {
         for (let j = 0; j < message.images.length; j++) {
           const img = message.images[j];
-          if (img && img.image_url && img.image_url.url) {
+          if (img && img.type === 'image_url' && img.image_url && img.image_url.url) {
             images.push(img.image_url.url);
           }
         }
