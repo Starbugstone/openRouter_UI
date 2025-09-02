@@ -46,6 +46,8 @@
       if (modelSelectorBtn) {
         DOMUtils.addEventListener(modelSelectorBtn, 'click', () => {
           DOMUtils.showElement(modelSelectorModal);
+          // Set appropriate filter based on current mode
+          this.setFilterBasedOnMode();
         });
       }
 
@@ -459,6 +461,36 @@
         localStorage.removeItem('or_selected_model');
       } catch (e) {
         console.warn('Failed to clear selected model:', e);
+      }
+    }
+
+    /**
+     * Set filter based on current mode
+     */
+    setFilterBasedOnMode() {
+      // Get current mode from the mode select element
+      const modeElement = document.getElementById('mode');
+      if (!modeElement) return;
+
+      const currentMode = modeElement.value;
+      const { filterButtons } = this.elements;
+
+      if (!filterButtons || filterButtons.length === 0) return;
+
+      // If mode is image, set filter to 'image', otherwise keep 'all'
+      const targetFilter = currentMode === 'image' ? 'image' : 'all';
+      
+      // Find the appropriate filter button
+      const targetButton = Array.from(filterButtons).find(btn => btn.dataset.filter === targetFilter);
+      if (targetButton) {
+        // Remove active class from all buttons
+        filterButtons.forEach(btn => btn.classList.remove('active'));
+        // Add active class to target button
+        targetButton.classList.add('active');
+        // Update current filter
+        this.currentFilter = targetFilter;
+        // Re-filter models
+        this.filterModels();
       }
     }
   }
