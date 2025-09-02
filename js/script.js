@@ -671,19 +671,26 @@
           });
           
           assistantMessageDiv.appendChild(imagesDiv);
+          
+          // Set the message content to indicate how many images were generated
+          var contentDiv = assistantMessageDiv.querySelector('.message-content');
+          if (contentDiv && !assistantContent) {
+            contentDiv.textContent = "Generated " + assistantImages.length + " image(s):";
+            assistantContent = "Generated " + assistantImages.length + " image(s):";
+          }
         }
         
         // Update message history with the complete assistant response
-        if (assistantMessageDiv && assistantContent) {
+        if (assistantMessageDiv && (assistantContent || assistantImages.length > 0)) {
           // Remove the temporary empty message from history if it exists
           var lastMessageIndex = messageHistory.length - 1;
           if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant' && messageHistory[lastMessageIndex].content === '') {
-            messageHistory[lastMessageIndex].content = assistantContent;
+            messageHistory[lastMessageIndex].content = assistantContent || "Generated " + assistantImages.length + " image(s):";
             messageHistory[lastMessageIndex].images = assistantImages;
           } else {
             messageHistory.push({
               role: 'assistant',
-              content: assistantContent,
+              content: assistantContent || "Generated " + assistantImages.length + " image(s):",
               images: assistantImages,
               timestamp: new Date()
             });
@@ -808,6 +815,10 @@
                 if (img && img.image_url && img.image_url.url){
                   console.log("Adding image from choice.message.images:", img.image_url.url);
                   assistantImages.push(img.image_url.url);
+                  // Create message when we first get an image
+                  if (!assistantMessageDiv) {
+                    assistantMessageDiv = addMessageToChat('assistant', '');
+                  }
                 }
               }
             }
@@ -820,6 +831,10 @@
                 if (img && img.type === 'image_url' && img.image_url && img.image_url.url){
                   console.log("Adding image from delta.images:", img.image_url.url);
                   assistantImages.push(img.image_url.url);
+                  // Create message when we first get an image
+                  if (!assistantMessageDiv) {
+                    assistantMessageDiv = addMessageToChat('assistant', '');
+                  }
                 }
               }
             }
@@ -841,6 +856,10 @@
                 if (part && part.type === 'output_image' && part.image_url && part.image_url.url){ 
                   console.log("Adding image from delta content:", part.image_url.url);
                   assistantImages.push(part.image_url.url);
+                  // Create message when we first get an image
+                  if (!assistantMessageDiv) {
+                    assistantMessageDiv = addMessageToChat('assistant', '');
+                  }
                 }
               }
             }
@@ -865,19 +884,26 @@
           });
           
           assistantMessageDiv.appendChild(imagesDiv);
+          
+          // Set the message content to indicate how many images were generated
+          var contentDiv = assistantMessageDiv.querySelector('.message-content');
+          if (contentDiv && !assistantContent) {
+            contentDiv.textContent = "Generated " + assistantImages.length + " image(s):";
+            assistantContent = "Generated " + assistantImages.length + " image(s):";
+          }
         }
         
         // Update message history with the complete assistant response
-        if (assistantMessageDiv && assistantContent) {
+        if (assistantMessageDiv && (assistantContent || assistantImages.length > 0)) {
           // Remove the temporary empty message from history if it exists
           var lastMessageIndex = messageHistory.length - 1;
           if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant' && messageHistory[lastMessageIndex].content === '') {
-            messageHistory[lastMessageIndex].content = assistantContent;
+            messageHistory[lastMessageIndex].content = assistantContent || "Generated " + assistantImages.length + " image(s):";
             messageHistory[lastMessageIndex].images = assistantImages;
           } else {
             messageHistory.push({
               role: 'assistant',
-              content: assistantContent,
+              content: assistantContent || "Generated " + assistantImages.length + " image(s):",
               images: assistantImages,
               timestamp: new Date()
             });
