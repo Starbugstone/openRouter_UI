@@ -29,6 +29,9 @@
   var imageUploadBtn = $("imageUploadBtn");
   var imageUpload = $("imageUpload");
   var imagePreview = $("imagePreview");
+  
+  // Regeneration control elements (will be created dynamically)
+  var currentRegenerationControls = null;
 
   var currentController = null;
   var streamingActive = false;
@@ -42,6 +45,11 @@
   var messageHistory = [];
   var currentTypingIndicator = null;
   var uploadedImages = [];
+  
+  // Regeneration state
+  var regenerationHistory = []; // Array to store multiple regenerated responses
+  var currentResponseIndex = -1; // Index of currently displayed response (-1 means no regeneration)
+  var lastUserMessage = null; // Store the last user message for regeneration
 
   try {
     var saved = localStorage.getItem("or_api_key");
@@ -130,6 +138,8 @@
 
   // Send button click
   sendBtn.addEventListener("click", sendMessage);
+  
+  // Regeneration control event listeners will be added dynamically
 
   // Image upload functionality
   imageUploadBtn.addEventListener("click", function() {
@@ -337,8 +347,22 @@
     if (!prompt && uploadedImages.length === 0) { alert("Please write a message or upload an image."); return; }
     if (!selectedModel) { alert("Please select a model from the model selector."); return; }
 
+    // Store the user message for potential regeneration BEFORE clearing input
+    lastUserMessage = {
+      content: prompt,
+      images: uploadedImages.slice() // Create a copy of the array
+    };
+    console.log("Stored lastUserMessage:", lastUserMessage);
+    
     // Add user message to chat with uploaded images
     addMessageToChat('user', prompt, uploadedImages, true);
+    
+    // Clear regeneration history when starting a new conversation (but keep lastUserMessage)
+    regenerationHistory = [];
+    currentResponseIndex = -1;
+    if (currentRegenerationControls) {
+      currentRegenerationControls.style.display = 'none';
+    }
     
     // Clear input and images
     promptEl.value = '';
@@ -401,6 +425,14 @@
     }
     
     messageDiv.appendChild(timeDiv);
+    
+    // Add regeneration controls for assistant messages
+    if (role === 'assistant') {
+      var regenerationControls = createRegenerationControls();
+      messageDiv.appendChild(regenerationControls);
+      currentRegenerationControls = regenerationControls;
+    }
+    
     chatMessages.appendChild(messageDiv);
     
     // Scroll to bottom
@@ -448,6 +480,7 @@
     messageHistory = [];
     hideTypingIndicator();
     clearImagePreview();
+    clearRegenerationHistory();
   }
 
   function addImagePreview(file) {
@@ -681,7 +714,12 @@
       }).then(parseJsonOrThrow).then(function(json){
         hideTypingIndicator();
         var content = pickText(json.choices && json.choices[0] && json.choices[0].message) || "";
-        addMessageToChat('assistant', content || "[Empty response]");
+        var images = extractImagesFromMessage(json.choices && json.choices[0] && json.choices[0].message);
+        addMessageToChat('assistant', content || "[Empty response]", images);
+        
+        // Add to regeneration history
+        addResponseToHistory(content || "[Empty response]", images);
+        
         cleanupStreamState();
       });
     }
@@ -791,6 +829,9 @@
               timestamp: new Date()
             });
           }
+          
+          // Add to regeneration history
+          addResponseToHistory(assistantContent || "Generated " + assistantImages.length + " image(s):", assistantImages);
         }
         
         cleanupStreamState(); 
@@ -871,9 +912,13 @@
         }
         if (totalImages.length === 0) {
           var txt = pickText(json.choices && json.choices[0] && json.choices[0].message);
-          addMessageToChat('assistant', txt ? txt : "No images found in response.");
+          var content = txt ? txt : "No images found in response.";
+          addMessageToChat('assistant', content);
+          addResponseToHistory(content, []);
         } else {
-          addMessageToChat('assistant', "Generated " + totalImages.length + " image(s):", totalImages);
+          var content = "Generated " + totalImages.length + " image(s):";
+          addMessageToChat('assistant', content, totalImages);
+          addResponseToHistory(content, totalImages);
         }
         cleanupStreamState();
       });
@@ -1033,6 +1078,886 @@
               timestamp: new Date()
             });
           }
+          
+          // Add to regeneration history
+          addResponseToHistory(assistantContent || "Generated " + assistantImages.length + " image(s):", assistantImages);
+        }
+        
+        cleanupStreamState(); 
+      });
+    }).catch(function(err){ cleanupStreamState(); throw err; });
+  }
+
+  // Regeneration functions
+  function regenerateLastResponse() {
+    console.log("Regenerate button clicked. lastUserMessage:", lastUserMessage);
+    if (!lastUserMessage) {
+      console.warn("No user message to regenerate");
+      return;
+    }
+    
+    // Show typing indicator
+    showTypingIndicator();
+    
+    // Get the last user message details
+    var key = (apiKeyEl.value || "").trim();
+    var mode = modeEl.value;
+    var model = selectedModel ? selectedModel.id : (mode === "image" ? "google/gemini-2.5-flash-image-preview" : "openrouter/auto");
+    
+    if (!key) { 
+      hideTypingIndicator();
+      alert("Please paste your OpenRouter API key."); 
+      return; 
+    }
+    if (!selectedModel) { 
+      hideTypingIndicator();
+      alert("Please select a model from the model selector."); 
+      return; 
+    }
+    
+    var doStream = !!streamEl.checked;
+    var tsec = parseInt(timeoutEl.value || 30, 10); 
+    if (isNaN(tsec)) tsec = 30; 
+    tsec = Math.min(Math.max(tsec,5),120);
+    
+    // Generate new response
+    if (mode === "text") {
+      runChatRegeneration(key, model, lastUserMessage, doStream, tsec).catch(reportErr);
+    } else {
+      var n = 1; 
+      if (mode === "image"){ 
+        n = parseInt(imgCountEl.value || 1, 10); 
+        if (isNaN(n)) n = 1; 
+        n = Math.min(Math.max(n,1),4); 
+      }
+      runImageViaChatRegeneration(key, model, lastUserMessage, n, doStream, tsec).catch(reportErr);
+    }
+  }
+  
+  function showPreviousResponse() {
+    if (currentResponseIndex > 0) {
+      currentResponseIndex--;
+      displayCurrentResponse();
+      updateRegenerationControls();
+    }
+  }
+  
+  function showNextResponse() {
+    if (currentResponseIndex < regenerationHistory.length - 1) {
+      currentResponseIndex++;
+      displayCurrentResponse();
+      updateRegenerationControls();
+    }
+  }
+  
+  function displayCurrentResponse() {
+    if (currentResponseIndex >= 0 && currentResponseIndex < regenerationHistory.length) {
+      var response = regenerationHistory[currentResponseIndex];
+      
+      // Find the last assistant message in the chat and update it
+      var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+      if (assistantMessages.length > 0) {
+        var lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+        var contentDiv = lastAssistantMessage.querySelector('.message-content');
+        var imagesDiv = lastAssistantMessage.querySelector('.message-images');
+        
+        // Update content
+        if (contentDiv) {
+          contentDiv.textContent = response.content;
+        }
+        
+        // Update images
+        if (imagesDiv) {
+          imagesDiv.remove();
+        }
+        if (response.images && response.images.length > 0) {
+          var newImagesDiv = document.createElement('div');
+          newImagesDiv.className = 'message-images';
+          
+          response.images.forEach(function(src) {
+            var img = document.createElement('img');
+            img.src = src;
+            img.alt = 'Generated image';
+            img.addEventListener('click', function() {
+              modalImg.src = src;
+              modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+              modal.style.display = "block";
+            });
+            newImagesDiv.appendChild(img);
+          });
+          
+          lastAssistantMessage.appendChild(newImagesDiv);
+        }
+        
+        // Update message history to reflect the currently displayed response
+        var lastMessageIndex = messageHistory.length - 1;
+        if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant') {
+          messageHistory[lastMessageIndex].content = response.content;
+          messageHistory[lastMessageIndex].images = response.images || [];
+        }
+      }
+    }
+  }
+  
+  function updateRegenerationControls() {
+    console.log('Updating regeneration controls. History length:', regenerationHistory.length);
+    if (currentRegenerationControls && regenerationHistory.length > 0) {
+      currentRegenerationControls.style.display = 'flex';
+      
+      var counterSpan = currentRegenerationControls.querySelector('.response-counter');
+      var prevBtn = currentRegenerationControls.querySelector('button[title="Previous response"]');
+      var nextBtn = currentRegenerationControls.querySelector('button[title="Next response"]');
+      
+      if (counterSpan) {
+        counterSpan.textContent = (currentResponseIndex + 1) + '/' + regenerationHistory.length;
+      }
+      if (prevBtn) {
+        prevBtn.disabled = currentResponseIndex <= 0;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = currentResponseIndex >= regenerationHistory.length - 1;
+      }
+      console.log('Regeneration controls shown');
+    } else if (currentRegenerationControls) {
+      currentRegenerationControls.style.display = 'none';
+      console.log('Regeneration controls hidden');
+    }
+  }
+  
+  function addResponseToHistory(content, images) {
+    var response = {
+      content: content,
+      images: images || [],
+      timestamp: new Date()
+    };
+    
+    regenerationHistory.push(response);
+    currentResponseIndex = regenerationHistory.length - 1;
+    console.log('Added response to history. Total responses:', regenerationHistory.length);
+    updateRegenerationControls();
+  }
+  
+  function clearRegenerationHistory() {
+    console.log("clearRegenerationHistory called - clearing lastUserMessage");
+    regenerationHistory = [];
+    currentResponseIndex = -1;
+    lastUserMessage = null;
+    if (currentRegenerationControls) {
+      currentRegenerationControls.style.display = 'none';
+    }
+  }
+  
+  function createRegenerationControls() {
+    var controlsDiv = document.createElement('div');
+    controlsDiv.className = 'regeneration-controls';
+    controlsDiv.style.display = 'none'; // Initially hidden
+    
+    var prevBtn = document.createElement('button');
+    prevBtn.className = 'btn secondary';
+    prevBtn.title = 'Previous response';
+    prevBtn.innerHTML = '‹';
+    prevBtn.addEventListener('click', showPreviousResponse);
+    
+    var counterSpan = document.createElement('span');
+    counterSpan.className = 'response-counter';
+    counterSpan.textContent = '1/1';
+    
+    var nextBtn = document.createElement('button');
+    nextBtn.className = 'btn secondary';
+    nextBtn.title = 'Next response';
+    nextBtn.innerHTML = '›';
+    nextBtn.addEventListener('click', showNextResponse);
+    
+    var regenerateBtn = document.createElement('button');
+    regenerateBtn.className = 'btn secondary';
+    regenerateBtn.title = 'Generate new response';
+    regenerateBtn.innerHTML = '🔄';
+    regenerateBtn.addEventListener('click', regenerateLastResponse);
+    
+    controlsDiv.appendChild(prevBtn);
+    controlsDiv.appendChild(counterSpan);
+    controlsDiv.appendChild(nextBtn);
+    controlsDiv.appendChild(regenerateBtn);
+    
+    return controlsDiv;
+  }
+  
+  // Regeneration-specific chat functions
+  function runChatRegeneration(key, model, userMessage, stream, tsec) {
+    // Build messages array with conversation history up to the last user message
+    var messages = [];
+    
+    // Add all messages from history except the last assistant message (if it exists)
+    var historyToUse = messageHistory.slice(0, -1); // Remove last message (assistant response)
+    
+    historyToUse.forEach(function(msg) {
+      var messageContent = msg.content;
+      
+      // If message has images, create multimodal content
+      if (msg.images && msg.images.length > 0) {
+        var content = [];
+        
+        // Add text content if present
+        if (msg.content && msg.content.trim()) {
+          content.push({
+            type: "text",
+            text: msg.content
+          });
+        }
+        
+        // Add images
+        msg.images.forEach(function(imgData) {
+          var imageUrl = typeof imgData === 'string' ? imgData : imgData.data;
+          content.push({
+            type: "image_url",
+            image_url: {
+              url: imageUrl
+            }
+          });
+        });
+        
+        messages.push({
+          role: msg.role,
+          content: content
+        });
+      } else {
+        // Regular text message
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      }
+    });
+    
+    // Add the user message for regeneration
+    if (userMessage.images && userMessage.images.length > 0) {
+      var content = [];
+      
+      // Add text content if present
+      if (userMessage.content && userMessage.content.trim()) {
+        content.push({
+          type: "text",
+          text: userMessage.content
+        });
+      }
+      
+      // Add images
+      userMessage.images.forEach(function(imgData) {
+        var imageUrl = typeof imgData === 'string' ? imgData : imgData.data;
+        content.push({
+          type: "image_url",
+          image_url: {
+            url: imageUrl
+          }
+        });
+      });
+      
+      messages.push({
+        role: 'user',
+        content: content
+      });
+    } else {
+      messages.push({
+        role: 'user',
+        content: userMessage.content
+      });
+    }
+    
+    var body = { model: model, messages: messages, stream: stream };
+    var url = "https://openrouter.ai/api/v1/chat/completions";
+
+    if (!stream){
+      return fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + key,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-Title": "Local OpenRouter Playground"
+        },
+        body: JSON.stringify(body)
+      }).then(parseJsonOrThrow).then(function(json){
+        hideTypingIndicator();
+        var content = pickText(json.choices && json.choices[0] && json.choices[0].message) || "";
+        var images = extractImagesFromMessage(json.choices && json.choices[0] && json.choices[0].message);
+        
+        // Update the last assistant message in chat
+        var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+        if (assistantMessages.length > 0) {
+          var lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+          var contentDiv = lastAssistantMessage.querySelector('.message-content');
+          var imagesDiv = lastAssistantMessage.querySelector('.message-images');
+          
+          if (contentDiv) {
+            contentDiv.textContent = content || "[Empty response]";
+          }
+          
+          // Update images
+          if (imagesDiv) {
+            imagesDiv.remove();
+          }
+          if (images.length > 0) {
+            var newImagesDiv = document.createElement('div');
+            newImagesDiv.className = 'message-images';
+            
+            images.forEach(function(src) {
+              var img = document.createElement('img');
+              img.src = src;
+              img.alt = 'Generated image';
+              img.addEventListener('click', function() {
+                modalImg.src = src;
+                modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+                modal.style.display = "block";
+              });
+              newImagesDiv.appendChild(img);
+            });
+            
+            lastAssistantMessage.appendChild(newImagesDiv);
+          }
+        }
+        
+        // Add to regeneration history
+        addResponseToHistory(content || "[Empty response]", images);
+        
+        // Update message history
+        var lastMessageIndex = messageHistory.length - 1;
+        if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant') {
+          messageHistory[lastMessageIndex].content = content || "[Empty response]";
+          messageHistory[lastMessageIndex].images = images;
+        }
+        
+        cleanupStreamState();
+      });
+    }
+
+    beginStream();
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + key,
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "X-Title": "Local OpenRouter Playground"
+      },
+      body: JSON.stringify(body),
+      signal: currentController.signal
+    }).then(function(res){
+      hideTypingIndicator();
+      var assistantMessageDiv = null;
+      var assistantContent = '';
+      var assistantImages = [];
+      
+      return readSSE(res, function(chunk){
+        if (chunk && chunk.json && chunk.fallback){
+          // server returned JSON instead of SSE
+          var content = pickText(chunk.json.choices && chunk.json.choices[0] && chunk.json.choices[0].message) || "";
+          var images = extractImagesFromMessage(chunk.json.choices && chunk.json.choices[0] && chunk.json.choices[0].message);
+          
+          // Update the last assistant message in chat
+          var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+          if (assistantMessages.length > 0) {
+            var lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+            var contentDiv = lastAssistantMessage.querySelector('.message-content');
+            var imagesDiv = lastAssistantMessage.querySelector('.message-images');
+            
+            if (contentDiv) {
+              contentDiv.textContent = content || "[Empty response]";
+            }
+            
+            // Update images
+            if (imagesDiv) {
+              imagesDiv.remove();
+            }
+            if (images.length > 0) {
+              var newImagesDiv = document.createElement('div');
+              newImagesDiv.className = 'message-images';
+              
+              images.forEach(function(src) {
+                var img = document.createElement('img');
+                img.src = src;
+                img.alt = 'Generated image';
+                img.addEventListener('click', function() {
+                  modalImg.src = src;
+                  modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+                  modal.style.display = "block";
+                });
+                newImagesDiv.appendChild(img);
+              });
+              
+              lastAssistantMessage.appendChild(newImagesDiv);
+            }
+          }
+          
+          // Add to regeneration history
+          addResponseToHistory(content || "[Empty response]", images);
+          
+          // Update message history
+          var lastMessageIndex = messageHistory.length - 1;
+          if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant') {
+            messageHistory[lastMessageIndex].content = content || "[Empty response]";
+            messageHistory[lastMessageIndex].images = images;
+          }
+          return;
+        }
+        var choice = chunk.choices && chunk.choices[0];
+        var fin = choice ? choice.finish_reason : null;
+        if (fin === "content_filter"){ 
+          if (!assistantMessageDiv) {
+            assistantMessageDiv = addMessageToChat('assistant', '[Blocked by content filter]');
+          }
+        }
+        var delta = choice ? choice.delta : null;
+        if (delta && typeof delta.content === 'string'){ 
+          assistantContent += delta.content;
+          if (!assistantMessageDiv) {
+            // Find the last assistant message and update it
+            var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+            if (assistantMessages.length > 0) {
+              assistantMessageDiv = assistantMessages[assistantMessages.length - 1];
+            }
+          }
+          // Update existing message
+          var contentDiv = assistantMessageDiv.querySelector('.message-content');
+          contentDiv.textContent = assistantContent;
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        if (delta && delta.content && delta.content.length){
+          for (var i=0;i<delta.content.length;i++){
+            var part = delta.content[i];
+            if (part && part.type === 'output_text' && part.text){ 
+              assistantContent += part.text;
+              if (!assistantMessageDiv) {
+                // Find the last assistant message and update it
+                var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+                if (assistantMessages.length > 0) {
+                  assistantMessageDiv = assistantMessages[assistantMessages.length - 1];
+                }
+              }
+              // Update existing message
+              var contentDiv = assistantMessageDiv.querySelector('.message-content');
+              contentDiv.textContent = assistantContent;
+              chatMessages.scrollTop = chatMessages.scrollHeight;
+            }
+            if (part && part.type === 'output_image' && part.image_url && part.image_url.url){ 
+              assistantImages.push(part.image_url.url);
+            }
+          }
+        }
+      }, function(){ 
+        // Add images to the assistant message if any were generated
+        if (assistantImages.length > 0 && assistantMessageDiv) {
+          var imagesDiv = document.createElement('div');
+          imagesDiv.className = 'message-images';
+          
+          assistantImages.forEach(function(src) {
+            var img = document.createElement('img');
+            img.src = src;
+            img.alt = 'Generated image';
+            img.addEventListener('click', function() {
+              modalImg.src = src;
+              modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+              modal.style.display = "block";
+            });
+            imagesDiv.appendChild(img);
+          });
+          
+          assistantMessageDiv.appendChild(imagesDiv);
+          
+          // Set the message content to indicate how many images were generated
+          var contentDiv = assistantMessageDiv.querySelector('.message-content');
+          if (contentDiv && !assistantContent) {
+            contentDiv.textContent = "Generated " + assistantImages.length + " image(s):";
+            assistantContent = "Generated " + assistantImages.length + " image(s):";
+          }
+        }
+        
+        // Add to regeneration history
+        addResponseToHistory(assistantContent || "Generated " + assistantImages.length + " image(s):", assistantImages);
+        
+        // Update message history with the complete assistant response
+        var lastMessageIndex = messageHistory.length - 1;
+        if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant') {
+          messageHistory[lastMessageIndex].content = assistantContent || "Generated " + assistantImages.length + " image(s):";
+          messageHistory[lastMessageIndex].images = assistantImages;
+        }
+        
+        cleanupStreamState(); 
+      });
+    }).catch(function(err){ cleanupStreamState(); throw err; });
+  }
+  
+  function runImageViaChatRegeneration(key, model, userMessage, n, stream, tsec) {
+    // Build messages array with conversation history up to the last user message
+    var messages = [];
+    
+    // Add all messages from history except the last assistant message (if it exists)
+    var historyToUse = messageHistory.slice(0, -1); // Remove last message (assistant response)
+    
+    historyToUse.forEach(function(msg) {
+      var messageContent = msg.content;
+      
+      // If message has images, create multimodal content
+      if (msg.images && msg.images.length > 0) {
+        var content = [];
+        
+        // Add text content if present
+        if (msg.content && msg.content.trim()) {
+          content.push({
+            type: "text",
+            text: msg.content
+          });
+        }
+        
+        // Add images
+        msg.images.forEach(function(imgData) {
+          var imageUrl = typeof imgData === 'string' ? imgData : imgData.data;
+          content.push({
+            type: "image_url",
+            image_url: {
+              url: imageUrl
+            }
+          });
+        });
+        
+        messages.push({
+          role: msg.role,
+          content: content
+        });
+      } else {
+        // Regular text message
+        messages.push({
+          role: msg.role,
+          content: msg.content
+        });
+      }
+    });
+    
+    // Add the user message for regeneration
+    if (userMessage.images && userMessage.images.length > 0) {
+      var content = [];
+      
+      // Add text content if present
+      if (userMessage.content && userMessage.content.trim()) {
+        content.push({
+          type: "text",
+          text: userMessage.content
+        });
+      }
+      
+      // Add images
+      userMessage.images.forEach(function(imgData) {
+        var imageUrl = typeof imgData === 'string' ? imgData : imgData.data;
+        content.push({
+          type: "image_url",
+          image_url: {
+            url: imageUrl
+          }
+        });
+      });
+      
+      messages.push({
+        role: 'user',
+        content: content
+      });
+    } else {
+      messages.push({
+        role: 'user',
+        content: userMessage.content
+      });
+    }
+    
+    var body = { model: model, messages: messages, modalities: ["image","text"], n: n, stream: stream };
+    var url = "https://openrouter.ai/api/v1/chat/completions";
+    
+    // Debug: Log the request being sent
+    console.log("Sending image generation regeneration request:", JSON.stringify(body, null, 2));
+
+    if (!stream){
+      return fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + key,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "X-Title": "Local OpenRouter Playground"
+        },
+        body: JSON.stringify(body)
+      }).then(parseJsonOrThrow).then(function(json){
+        hideTypingIndicator();
+        // Process all choices for multiple images
+        var totalImages = [];
+        if (json.choices && json.choices.length > 0) {
+          for (var c = 0; c < json.choices.length; c++) {
+            var message = json.choices[c] && json.choices[c].message;
+            var imgs = extractImagesFromMessage(message);
+            totalImages = totalImages.concat(imgs);
+          }
+        }
+        
+        var content = "Generated " + totalImages.length + " image(s):";
+        if (totalImages.length === 0) {
+          var txt = pickText(json.choices && json.choices[0] && json.choices[0].message);
+          content = txt ? txt : "No images found in response.";
+        }
+        
+        // Update the last assistant message in chat
+        var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+        if (assistantMessages.length > 0) {
+          var lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+          var contentDiv = lastAssistantMessage.querySelector('.message-content');
+          var imagesDiv = lastAssistantMessage.querySelector('.message-images');
+          
+          if (contentDiv) {
+            contentDiv.textContent = content;
+          }
+          
+          // Update images
+          if (imagesDiv) {
+            imagesDiv.remove();
+          }
+          if (totalImages.length > 0) {
+            var newImagesDiv = document.createElement('div');
+            newImagesDiv.className = 'message-images';
+            
+            totalImages.forEach(function(src) {
+              var img = document.createElement('img');
+              img.src = src;
+              img.alt = 'Generated image';
+              img.addEventListener('click', function() {
+                modalImg.src = src;
+                modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+                modal.style.display = "block";
+              });
+              newImagesDiv.appendChild(img);
+            });
+            
+            lastAssistantMessage.appendChild(newImagesDiv);
+          }
+        }
+        
+        // Add to regeneration history
+        addResponseToHistory(content, totalImages);
+        
+        // Update message history
+        var lastMessageIndex = messageHistory.length - 1;
+        if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant') {
+          messageHistory[lastMessageIndex].content = content;
+          messageHistory[lastMessageIndex].images = totalImages;
+        }
+        
+        cleanupStreamState();
+      });
+    }
+
+    beginStream();
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + key,
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "X-Title": "Local OpenRouter Playground"
+      },
+      body: JSON.stringify(body),
+      signal: currentController.signal
+    }).then(function(res){
+      hideTypingIndicator();
+      var assistantMessageDiv = null;
+      var assistantContent = '';
+      var assistantImages = [];
+      
+      return readSSE(res, function(chunk){
+        // Debug logging for image chunks
+        if (chunk && chunk.choices) {
+          console.log("Image streaming regeneration chunk:", JSON.stringify(chunk, null, 2));
+        }
+        
+        if (chunk && chunk.json && chunk.fallback){
+          // Handle non-streaming response
+          if (chunk.json.choices && chunk.json.choices.length > 0) {
+            for (var c = 0; c < chunk.json.choices.length; c++) {
+              var message = chunk.json.choices[c] && chunk.json.choices[c].message;
+              var imgs = extractImagesFromMessage(message);
+              assistantImages = assistantImages.concat(imgs);
+            }
+            var content = "Generated " + assistantImages.length + " image(s):";
+            if (assistantImages.length === 0) {
+              var txt = pickText(chunk.json.choices[0] && chunk.json.choices[0].message);
+              content = txt ? txt : "No images found in response.";
+            }
+            
+            // Update the last assistant message in chat
+            var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+            if (assistantMessages.length > 0) {
+              var lastAssistantMessage = assistantMessages[assistantMessages.length - 1];
+              var contentDiv = lastAssistantMessage.querySelector('.message-content');
+              var imagesDiv = lastAssistantMessage.querySelector('.message-images');
+              
+              if (contentDiv) {
+                contentDiv.textContent = content;
+              }
+              
+              // Update images
+              if (imagesDiv) {
+                imagesDiv.remove();
+              }
+              if (assistantImages.length > 0) {
+                var newImagesDiv = document.createElement('div');
+                newImagesDiv.className = 'message-images';
+                
+                assistantImages.forEach(function(src) {
+                  var img = document.createElement('img');
+                  img.src = src;
+                  img.alt = 'Generated image';
+                  img.addEventListener('click', function() {
+                    modalImg.src = src;
+                    modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+                    modal.style.display = "block";
+                  });
+                  newImagesDiv.appendChild(img);
+                });
+                
+                lastAssistantMessage.appendChild(newImagesDiv);
+              }
+            }
+            
+            // Add to regeneration history
+            addResponseToHistory(content, assistantImages);
+            
+            // Update message history
+            var lastMessageIndex = messageHistory.length - 1;
+            if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant') {
+              messageHistory[lastMessageIndex].content = content;
+              messageHistory[lastMessageIndex].images = assistantImages;
+            }
+          }
+          return;
+        }
+        
+        // Handle streaming response - process all choices
+        if (chunk && chunk.choices && chunk.choices.length > 0) {
+          for (var choiceIndex = 0; choiceIndex < chunk.choices.length; choiceIndex++) {
+            var choice = chunk.choices[choiceIndex];
+            var fin = choice ? choice.finish_reason : null;
+            if (fin === "content_filter"){ 
+              if (!assistantMessageDiv) {
+                // Find the last assistant message and update it
+                var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+                if (assistantMessages.length > 0) {
+                  assistantMessageDiv = assistantMessages[assistantMessages.length - 1];
+                }
+                var contentDiv = assistantMessageDiv.querySelector('.message-content');
+                contentDiv.textContent = '[Blocked by content filter]';
+              }
+            }
+            var delta = choice ? choice.delta : null;
+            
+            // Check for images in the choice itself (not just delta content)
+            if (choice && choice.message && choice.message.images){
+              console.log("Found images in choice.message.images:", choice.message.images);
+              for (var k=0;k<choice.message.images.length;k++){
+                var img = choice.message.images[k];
+                if (img && img.image_url && img.image_url.url){
+                  console.log("Adding image from choice.message.images:", img.image_url.url);
+                  assistantImages.push(img.image_url.url);
+                  // Find the last assistant message and update it
+                  if (!assistantMessageDiv) {
+                    var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+                    if (assistantMessages.length > 0) {
+                      assistantMessageDiv = assistantMessages[assistantMessages.length - 1];
+                    }
+                  }
+                }
+              }
+            }
+            
+            // Check for images in delta.images (the actual structure from the API)
+            if (delta && delta.images && delta.images.length){
+              console.log("Found images in delta.images:", delta.images);
+              for (var m=0;m<delta.images.length;m++){
+                var img = delta.images[m];
+                if (img && img.type === 'image_url' && img.image_url && img.image_url.url){
+                  console.log("Adding image from delta.images:", img.image_url.url);
+                  assistantImages.push(img.image_url.url);
+                  // Find the last assistant message and update it
+                  if (!assistantMessageDiv) {
+                    var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+                    if (assistantMessages.length > 0) {
+                      assistantMessageDiv = assistantMessages[assistantMessages.length - 1];
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (delta && delta.content && delta.content.length){
+              for (var i=0;i<delta.content.length;i++){
+                var part = delta.content[i];
+                if (part && part.type === 'output_text' && part.text){ 
+                  assistantContent += part.text;
+                  if (!assistantMessageDiv) {
+                    // Find the last assistant message and update it
+                    var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+                    if (assistantMessages.length > 0) {
+                      assistantMessageDiv = assistantMessages[assistantMessages.length - 1];
+                    }
+                  }
+                  // Update existing message
+                  var contentDiv = assistantMessageDiv.querySelector('.message-content');
+                  contentDiv.textContent = assistantContent;
+                  chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+                if (part && part.type === 'output_image' && part.image_url && part.image_url.url){ 
+                  console.log("Adding image from delta content:", part.image_url.url);
+                  assistantImages.push(part.image_url.url);
+                  // Find the last assistant message and update it
+                  if (!assistantMessageDiv) {
+                    var assistantMessages = chatMessages.querySelectorAll('.message.assistant');
+                    if (assistantMessages.length > 0) {
+                      assistantMessageDiv = assistantMessages[assistantMessages.length - 1];
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }, function(){ 
+        // Add images to the assistant message if any were generated
+        if (assistantImages.length > 0 && assistantMessageDiv) {
+          var imagesDiv = document.createElement('div');
+          imagesDiv.className = 'message-images';
+          
+          assistantImages.forEach(function(src) {
+            var img = document.createElement('img');
+            img.src = src;
+            img.alt = 'Generated image';
+            img.addEventListener('click', function() {
+              modalImg.src = src;
+              modalCaption.textContent = "Generated image - Click outside or press Escape to close";
+              modal.style.display = "block";
+            });
+            imagesDiv.appendChild(img);
+          });
+          
+          assistantMessageDiv.appendChild(imagesDiv);
+          
+          // Set the message content to indicate how many images were generated
+          var contentDiv = assistantMessageDiv.querySelector('.message-content');
+          if (contentDiv && !assistantContent) {
+            contentDiv.textContent = "Generated " + assistantImages.length + " image(s):";
+            assistantContent = "Generated " + assistantImages.length + " image(s):";
+          }
+        }
+        
+        // Add to regeneration history
+        addResponseToHistory(assistantContent || "Generated " + assistantImages.length + " image(s):", assistantImages);
+        
+        // Update message history with the complete assistant response
+        var lastMessageIndex = messageHistory.length - 1;
+        if (lastMessageIndex >= 0 && messageHistory[lastMessageIndex].role === 'assistant') {
+          messageHistory[lastMessageIndex].content = assistantContent || "Generated " + assistantImages.length + " image(s):";
+          messageHistory[lastMessageIndex].images = assistantImages;
         }
         
         cleanupStreamState(); 

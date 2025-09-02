@@ -424,6 +424,37 @@ pre.out {
 .chat-actions {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.regeneration-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #21242c;
+  border: 1px solid #2a2e37;
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+.regeneration-controls button {
+  padding: 4px 8px;
+  font-size: 12px;
+  min-width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.response-counter {
+  font-size: 11px;
+  color: #9aa0aa;
+  min-width: 30px;
+  text-align: center;
+  font-family: monospace;
 }
 
 .chat-messages {
