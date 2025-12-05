@@ -72,23 +72,35 @@
 
     <!-- Chat Interface -->
     <div class="card chat-container">
-      <div class="chat-header">
-        <label>Chat</label>
-        <div class="chat-actions">
-          <button class="btn secondary" id="stopBtn" style="display:none;">Stop</button>
-        </div>
-      </div>
-      <div id="chatMessages" class="chat-messages"></div>
-      <div class="chat-input-container">
-        <div class="chat-input-wrapper">
-          <div class="input-controls">
-            <input type="file" id="imageUpload" accept="image/*" multiple style="display: none;">
-            <button class="btn secondary" id="imageUploadBtn" title="Upload images">📷</button>
-            <textarea id="prompt" placeholder="Type your message here..." rows="1"></textarea>
+      <div class="chat-layout">
+        <aside class="chat-sidebar">
+          <div class="chat-sidebar-header">
+            <span>Past Chats</span>
+            <button id="newChatBtn" class="btn secondary btn-compact" title="Start a new chat">New</button>
           </div>
-          <button class="btn" id="sendBtn">Send</button>
+          <div id="chatHistoryList" class="chat-history-list"></div>
+        </aside>
+        <div class="chat-main">
+          <div class="chat-header">
+            <label>Chat</label>
+            <div class="chat-actions">
+              <button class="btn secondary" id="stopBtn" style="display:none;">Stop</button>
+            </div>
+          </div>
+          <div id="chatModelWarning" class="chat-warning" style="display:none;"></div>
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-input-container">
+            <div class="chat-input-wrapper">
+              <div class="input-controls">
+                <input type="file" id="imageUpload" accept="image/*" multiple style="display: none;">
+                <button class="btn secondary" id="imageUploadBtn" title="Upload images">📷</button>
+                <textarea id="prompt" placeholder="Type your message here..." rows="1"></textarea>
+              </div>
+              <button class="btn" id="sendBtn">Send</button>
+            </div>
+            <div id="imagePreview" class="image-preview"></div>
+          </div>
         </div>
-        <div id="imagePreview" class="image-preview"></div>
       </div>
     </div>
 
@@ -145,6 +157,8 @@
       </div>
     </div>
 
+    <div id="selectedModelLinks" class="muted small model-links"></div>
+
     <div class="muted small">
       Docs: <a href="https://openrouter.ai/docs/quickstart" target="_blank" rel="noopener">Quickstart</a> ·
       <a href="https://openrouter.ai/docs/features/multimodal/image-generation" target="_blank" rel="noopener">Image Gen via chat</a> ·
@@ -156,6 +170,7 @@
   <script src="js/dom-utils.js"></script>
   <script src="js/api-service.js"></script>
   <script src="js/model-manager.js"></script>
+  <script src="js/chat-history.js"></script>
   <script src="js/chat-manager.js"></script>
   <script src="js/image-handler.js"></script>
   <script src="js/regeneration-manager.js"></script>

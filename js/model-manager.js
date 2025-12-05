@@ -223,6 +223,24 @@
     }
 
     /**
+     * Build OpenRouter model URL
+     * @param {string} modelId
+     * @returns {string}
+     */
+    getModelUrl(modelId) {
+      return `https://openrouter.ai/models/${modelId}`;
+    }
+
+    /**
+     * Build OpenRouter chat URL for model
+     * @param {string} modelId
+     * @returns {string}
+     */
+    getChatUrl(modelId) {
+      return `https://openrouter.ai/chat?model=${encodeURIComponent(modelId)}`;
+    }
+
+    /**
      * Populate model selector with model cards
      */
     populateModelSelector() {
@@ -326,6 +344,9 @@
       
       // Get provider name
       const provider = model.id.split('/')[0] || 'Unknown';
+
+      const modelUrl = this.getModelUrl(model.id);
+      const chatUrl = this.getChatUrl(model.id);
       
       // Format pricing info
       const pricing = model.pricing || {};
@@ -347,11 +368,23 @@
         `<div class="model-context">Context: ${contextLength} tokens</div>` +
         `<div class="model-metrics">
           <span class="metric-item">Created: ${createdDate}</span>
+        </div>` +
+        `<div class="model-actions">
+          <a href="${modelUrl}" target="_blank" rel="noopener" data-model-link="view">Model page</a>
+          <a href="${chatUrl}" target="_blank" rel="noopener" data-model-link="chat">Open chat</a>
         </div>`;
       
       // Add click handler
       DOMUtils.addEventListener(card, 'click', () => {
         this.selectModel(model);
+      });
+
+      // Avoid selecting the card when clicking external links
+      const actionLinks = card.querySelectorAll('[data-model-link]');
+      actionLinks.forEach(link => {
+        DOMUtils.addEventListener(link, 'click', (event) => {
+          event.stopPropagation();
+        });
       });
       
       return card;
@@ -568,6 +601,28 @@
       } else {
         console.log('Previously selected model not found in current model list:', savedModel.id);
         // Clear the saved model if it's no longer available
+        this.clearSelection(true);
+      }
+    }
+
+    /**
+     * Clear selected model and optionally remove persisted value
+     * @param {boolean} clearStorage
+     */
+    clearSelection(clearStorage = false) {
+      this.selectedModel = null;
+
+      const { selectedModelText } = this.elements;
+      if (selectedModelText) {
+        DOMUtils.setTextContent(selectedModelText, 'Select a model...');
+      }
+
+      const previousSelected = document.querySelector('.model-card.selected');
+      if (previousSelected) {
+        previousSelected.classList.remove('selected');
+      }
+
+      if (clearStorage) {
         this.clearSelectedModel();
       }
     }

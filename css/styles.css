@@ -535,6 +535,94 @@ pre.out {
   max-height: 80vh;
 }
 
+.chat-layout {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+}
+
+.chat-sidebar {
+  width: 230px;
+  min-width: 200px;
+  background: #0e1015;
+  border: 1px solid #23262e;
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chat-history-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-history-item {
+  position: relative;
+  border: 1px solid #2a2e37;
+  border-radius: 10px;
+  padding: 10px;
+  background: #0b0c10;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.1s;
+}
+
+.chat-history-item:hover {
+  border-color: #2d7cff;
+}
+
+.chat-history-item.active {
+  border-color: #2d7cff;
+  box-shadow: 0 0 0 1px rgba(45, 124, 255, 0.4);
+}
+
+.chat-history-title {
+  color: #e8eaed;
+  font-weight: 600;
+  font-size: 13px;
+  margin-right: 24px;
+}
+
+.chat-history-meta {
+  color: #9aa0aa;
+  font-size: 11px;
+}
+
+.chat-history-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: #9aa0aa;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px;
+  line-height: 1;
+}
+
+.chat-history-delete:hover {
+  color: #ff6666;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .chat-header {
   display: flex;
   justify-content: space-between;
@@ -632,6 +720,16 @@ pre.out {
   color: #e8eaed;
   border: 1px solid #2a2e37;
   border-bottom-left-radius: 4px;
+}
+
+.chat-warning {
+  color: #ff6666;
+  background: rgba(255, 68, 68, 0.08);
+  border: 1px solid rgba(255, 68, 68, 0.3);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  margin-bottom: 12px;
 }
 
 .message-time {
@@ -868,4 +966,41 @@ pre.out {
 .message.user.editing .message-content {
   outline: none;
   cursor: text;
+}
+
+.btn-compact {
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.model-actions {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 8px;
+}
+
+.model-actions a {
+  color: #2d7cff;
+  text-decoration: none;
+}
+
+.model-actions a:hover {
+  text-decoration: underline;
+}
+
+.model-links {
+  margin: 12px 0;
+  line-height: 1.5;
+}
+
+@media (max-width: 960px) {
+  .chat-layout {
+    flex-direction: column;
+  }
+
+  .chat-sidebar {
+    width: 100%;
+  }
 }

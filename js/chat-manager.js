@@ -15,6 +15,7 @@
       this.messageHistory = [];
       this.currentTypingIndicator = null;
       this.isStreaming = false;
+      this.chatDisabled = false;
       
       // DOM elements (will be injected)
       this.elements = {};
@@ -116,10 +117,13 @@
      * @param {boolean} isUploaded - Whether images are uploaded
      * @returns {HTMLElement} Message element
      */
-    addMessageToChat(role, content, images = [], isUploaded = false) {
+    addMessageToChat(role, content, images = [], isUploaded = false, options = {}) {
       const { chatMessages } = this.elements;
       
       if (!chatMessages) return null;
+
+      const timestamp = options.timestamp || new Date().toISOString();
+      const storeInHistory = options.storeInHistory !== false;
 
       const messageDiv = DOMUtils.createElement('div', {
         className: `message ${role}`
@@ -132,7 +136,7 @@
       
       const timeDiv = DOMUtils.createElement('div', {
         className: 'message-time',
-        textContent: new Date().toLocaleTimeString()
+        textContent: new Date(timestamp).toLocaleTimeString()
       });
       
       messageDiv.appendChild(contentDiv);
@@ -174,12 +178,14 @@
       DOMUtils.scrollToBottom(chatMessages);
       
       // Store in message history
-      this.messageHistory.push({
-        role: role,
-        content: content,
-        images: images || [],
-        timestamp: new Date()
-      });
+      if (storeInHistory) {
+        this.messageHistory.push({
+          role: role,
+          content: content,
+          images: images || [],
+          timestamp: timestamp
+        });
+      }
       
       return messageDiv;
     }
@@ -589,11 +595,49 @@
     }
 
     /**
+     * Render provided history into chat UI
+     * @param {Array} history
+     */
+    renderHistory(history = []) {
+      const { chatMessages } = this.elements;
+      
+      if (chatMessages) {
+        DOMUtils.setInnerHTML(chatMessages, '');
+      }
+      
+      this.hideTypingIndicator();
+      this.messageHistory = [];
+
+      history.forEach(msg => {
+        const safeMessage = {
+          role: msg.role,
+          content: msg.content,
+          images: msg.images ? [...msg.images] : [],
+          timestamp: msg.timestamp || new Date().toISOString()
+        };
+
+        this.messageHistory.push(safeMessage);
+        this.addMessageToChat(
+          safeMessage.role,
+          safeMessage.content,
+          safeMessage.images,
+          safeMessage.role === 'user',
+          { storeInHistory: false, timestamp: safeMessage.timestamp }
+        );
+      });
+    }
+
+    /**
      * Set streaming state
      * @param {boolean} streaming - Whether currently streaming
      */
     setStreamingState(streaming) {
       this.isStreaming = streaming;
+
+      if (this.chatDisabled) {
+        this.applyDisabledState();
+        return;
+      }
       
       const { sendBtn, prompt, stopBtn } = this.elements;
       
@@ -619,6 +663,41 @@
         } else {
           DOMUtils.hideElement(stopBtn);
         }
+      }
+    }
+
+    /**
+     * Enable or disable all chat inputs
+     * @param {boolean} enabled
+     */
+    setChatEnabled(enabled) {
+      this.chatDisabled = !enabled;
+      if (!enabled) {
+        this.applyDisabledState();
+        return;
+      }
+
+      // Restore state based on whether we are streaming
+      this.setStreamingState(this.isStreaming);
+    }
+
+    /**
+     * Apply disabled state to inputs
+     */
+    applyDisabledState() {
+      const { sendBtn, prompt, stopBtn } = this.elements;
+
+      if (sendBtn) {
+        DOMUtils.disableElement(sendBtn);
+      }
+
+      if (prompt) {
+        DOMUtils.disableElement(prompt);
+      }
+
+      if (stopBtn) {
+        DOMUtils.hideElement(stopBtn);
+        DOMUtils.disableElement(stopBtn);
       }
     }
 

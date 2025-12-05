@@ -19,6 +19,7 @@
         streamEnabled: true,
         imageCount: 1
       };
+      this.historyInitialized = false;
     }
 
     /**
@@ -35,6 +36,9 @@
         
         // Load models asynchronously
         await this.loadModels();
+
+        // Initialize chat history after models are loaded
+        this.initializeChatHistory();
         
         this.isInitialized = true;
         console.log('OpenRouter App initialized successfully');
@@ -78,7 +82,7 @@
         modelsGrid: DOMUtils.getElementById('modelsGrid'),
         filterButtons: DOMUtils.querySelectorAll('.filter-btn'),
         modelCountEl: DOMUtils.getElementById('modelCount'),
-        refreshModels: DOMUtils.getElementById('refreshModels'),
+        refreshModelsBtn: DOMUtils.getElementById('refreshModels'),
         includePaidModelsToggle: DOMUtils.getElementById('includePaidModels'),
         modelSort: DOMUtils.getElementById('modelSort'),
         
@@ -86,6 +90,12 @@
         imageUploadBtn: DOMUtils.getElementById('imageUploadBtn'),
         imageUpload: DOMUtils.getElementById('imageUpload'),
         imagePreview: DOMUtils.getElementById('imagePreview'),
+
+        // Chat history & status
+        chatHistoryList: DOMUtils.getElementById('chatHistoryList'),
+        newChatBtn: DOMUtils.getElementById('newChatBtn'),
+        chatModelWarning: DOMUtils.getElementById('chatModelWarning'),
+        selectedModelLinks: DOMUtils.getElementById('selectedModelLinks'),
         
         // Modal elements
         modal: DOMUtils.getElementById('imageModal'),
@@ -107,7 +117,7 @@
         modelsGrid: this.elements.modelsGrid,
         filterButtons: this.elements.filterButtons,
         modelCountEl: this.elements.modelCountEl,
-        refreshModels: this.elements.refreshModels,
+        refreshModelsBtn: this.elements.refreshModelsBtn,
         selectedModelText: this.elements.selectedModelText,
         includePaidModelsToggle: this.elements.includePaidModelsToggle,
         modelSort: this.elements.modelSort
@@ -169,6 +179,26 @@
     }
 
     /**
+     * Initialize chat history manager and load active chat
+     */
+    initializeChatHistory() {
+      const activeChat = ChatHistoryManager.initialize({
+        listContainer: this.elements.chatHistoryList,
+        newChatBtn: this.elements.newChatBtn
+      });
+
+      this.historyInitialized = true;
+
+      ChatHistoryManager.setCallbacks({
+        onChatSelected: (chat) => this.loadChat(chat),
+        onChatDeleted: (chat) => this.loadChat(chat),
+        onChatCreated: (chat) => this.loadChat(chat)
+      });
+
+      this.loadChat(activeChat || ChatHistoryManager.getActiveChat());
+    }
+
+    /**
      * Setup API key event listeners
      */
     setupApiKeyListeners() {
@@ -201,6 +231,7 @@
           }
           // Save mode to localStorage
           this.saveMode();
+          this.persistActiveChat(ModelManager.getSelectedModel());
         });
       }
     }
@@ -210,11 +241,161 @@
      */
     setupModelListeners() {
       ModelManager.setOnModelSelected((model) => {
-        console.log('Model selected:', model);
+        this.handleModelSelected(model);
       });
 
-      ModelManager.setOnModelsLoaded((models) => {
-        console.log('Models loaded:', models.length);
+      ModelManager.setOnModelsLoaded(() => {
+        if (this.historyInitialized) {
+          const activeChat = ChatHistoryManager.getActiveChat();
+          if (activeChat) {
+            this.applyChatModel(activeChat.model);
+          }
+        }
+      });
+    }
+
+    /**
+     * Load a chat thread into the UI
+     * @param {Object} chat
+     */
+    loadChat(chat) {
+      if (!chat) return;
+
+      ChatManager.renderHistory(chat.messages || []);
+      RegenerationManager.clearRegenerationHistory();
+      ImageHandler.clearImagePreview();
+
+      if (chat.mode) {
+        this.applyMode(chat.mode);
+      }
+
+      this.applyChatModel(chat.model);
+    }
+
+    /**
+     * Apply a saved mode value to the UI
+     * @param {string} mode
+     */
+    applyMode(mode) {
+      const { mode: modeElement, imageOptions } = this.elements;
+      if (modeElement) {
+        DOMUtils.setValue(modeElement, mode);
+      }
+
+      if (imageOptions) {
+        const isImage = mode === 'image';
+        DOMUtils.showElement(imageOptions, isImage ? 'block' : 'none');
+      }
+    }
+
+    /**
+     * Apply chat model selection, handling missing models
+     * @param {Object|null} modelInfo
+     */
+    applyChatModel(modelInfo) {
+      const selectedModel = modelInfo && modelInfo.id
+        ? ModelManager.getAllModels().find(m => m.id === modelInfo.id)
+        : null;
+
+      if (selectedModel) {
+        const isFreeModel = ModelManager.getFreeModels().some(m => m.id === selectedModel.id);
+        if (!isFreeModel && !ModelManager.includePaidModels) {
+          const { includePaidModelsToggle } = this.elements;
+          if (includePaidModelsToggle) {
+            includePaidModelsToggle.checked = true;
+          }
+          ModelManager.includePaidModels = true;
+          ModelManager.updateModelDisplay();
+        }
+
+        ModelManager.selectModel(selectedModel);
+        this.clearModelWarning();
+        this.setChatInteractionEnabled(true);
+        this.updateSelectedModelLinks(selectedModel);
+      } else {
+        if (modelInfo && modelInfo.id) {
+          this.showModelWarning(`Model ${modelInfo.id} is unavailable. Choose another model to continue this chat.`);
+          ModelManager.clearSelection(true);
+        } else {
+          this.showModelWarning('Select a model to start chatting.');
+          ModelManager.clearSelection(false);
+        }
+        this.setChatInteractionEnabled(false);
+        this.updateSelectedModelLinks(null);
+      }
+    }
+
+    /**
+     * Enable/disable chat inputs (excluding model selector)
+     * @param {boolean} enabled
+     */
+    setChatInteractionEnabled(enabled) {
+      ChatManager.setChatEnabled(enabled);
+
+      const { imageUploadBtn, imageUpload, imgCount } = this.elements;
+      const toggle = enabled ? DOMUtils.enableElement : DOMUtils.disableElement;
+      [imageUploadBtn, imageUpload, imgCount].forEach(el => {
+        if (el) {
+          toggle(el);
+        }
+      });
+    }
+
+    /**
+     * Show model warning message
+     * @param {string} message
+     */
+    showModelWarning(message) {
+      const { chatModelWarning } = this.elements;
+      if (!chatModelWarning) return;
+
+      DOMUtils.setTextContent(chatModelWarning, message);
+      DOMUtils.showElement(chatModelWarning, 'block');
+    }
+
+    /**
+     * Clear model warning
+     */
+    clearModelWarning() {
+      const { chatModelWarning } = this.elements;
+      if (chatModelWarning) {
+        DOMUtils.hideElement(chatModelWarning);
+      }
+    }
+
+    /**
+     * Update selected model links footer
+     * @param {Object|null} model
+     */
+    updateSelectedModelLinks(model) {
+      const { selectedModelLinks } = this.elements;
+      if (!selectedModelLinks) return;
+
+      if (!model) {
+        DOMUtils.setInnerHTML(selectedModelLinks, 'No model selected.');
+        return;
+      }
+
+      const modelUrl = ModelManager.getModelUrl(model.id);
+      const chatUrl = ModelManager.getChatUrl(model.id);
+
+      DOMUtils.setInnerHTML(selectedModelLinks, 
+        `Selected model: <strong>${model.name}</strong> · ` +
+        `<a href="${modelUrl}" target="_blank" rel="noopener">Model page</a> · ` +
+        `<a href="${chatUrl}" target="_blank" rel="noopener">Open chat</a>`
+      );
+    }
+
+    /**
+     * Persist active chat state to localStorage
+     * @param {Object|null} model
+     */
+    persistActiveChat(model = ModelManager.getSelectedModel()) {
+      const chatModel = model ? { id: model.id, name: model.name } : null;
+      ChatHistoryManager.updateActiveChat({
+        messages: ChatManager.getMessageHistory(),
+        model: chatModel,
+        mode: DOMUtils.getValue(this.elements.mode)
       });
     }
 
@@ -331,6 +512,17 @@
     }
 
     /**
+     * Handle model selection updates
+     * @param {Object} model
+     */
+    handleModelSelected(model) {
+      this.clearModelWarning();
+      this.setChatInteractionEnabled(true);
+      this.updateSelectedModelLinks(model);
+      this.persistActiveChat(model);
+    }
+
+    /**
      * Handle send message
      */
     async handleSendMessage() {
@@ -356,6 +548,9 @@
         return;
       }
 
+      // Ensure we have an active chat thread
+      ChatHistoryManager.ensureActiveChat();
+
       // Store user message for regeneration (this will be used for the next assistant response)
       RegenerationManager.storeLastUserMessage({
         content: promptText,
@@ -369,6 +564,9 @@
       DOMUtils.setValue(prompt, '');
       DOMUtils.setValue(prompt, ''); // Reset height
       ImageHandler.clearImagePreview();
+
+      // Persist user message immediately
+      this.persistActiveChat(selectedModel);
       
       // Show typing indicator
       ChatManager.showTypingIndicator();
@@ -500,6 +698,7 @@
         }
         
         RegenerationManager.addResponseToHistory(assistantContent, assistantImages);
+        this.persistActiveChat(ModelManager.getSelectedModel());
       });
     }
 
@@ -513,6 +712,7 @@
       
       ChatManager.addMessageToChat('assistant', content || '[Empty response]', images);
       RegenerationManager.addResponseToHistory(content || '[Empty response]', images);
+      this.persistActiveChat(ModelManager.getSelectedModel());
     }
 
     /**
@@ -578,6 +778,7 @@
         }
         
         RegenerationManager.addResponseToHistory(assistantContent || `Generated ${assistantImages.length} image(s):`, assistantImages);
+        this.persistActiveChat(ModelManager.getSelectedModel());
       });
     }
 
@@ -598,6 +799,7 @@
       const content = totalImages.length > 0 ? `Generated ${totalImages.length} image(s):` : 'No images found in response.';
       ChatManager.addMessageToChat('assistant', content, totalImages);
       RegenerationManager.addResponseToHistory(content, totalImages);
+      this.persistActiveChat(ModelManager.getSelectedModel());
     }
 
     /**
@@ -606,6 +808,7 @@
     handleClearChat() {
       RegenerationManager.clearRegenerationHistory();
       ImageHandler.clearImagePreview();
+      this.persistActiveChat(ModelManager.getSelectedModel());
     }
 
     /**
@@ -662,6 +865,8 @@
         }
       }
       
+      this.persistActiveChat(ModelManager.getSelectedModel());
+
       ChatManager.showTypingIndicator();
       
       try {
@@ -706,6 +911,7 @@
       
       // Clear regeneration history since we're starting fresh
       RegenerationManager.clearRegenerationHistoryOnly();
+      this.persistActiveChat(ModelManager.getSelectedModel());
       
       // Show typing indicator and regenerate response
       ChatManager.showTypingIndicator();
