@@ -17,65 +17,36 @@ A simple, user-friendly web interface for interacting with OpenRouter's API. Thi
 - Node.js (for running the local server)
 - An OpenRouter API key ([Get one here](https://openrouter.ai/))
 
-## Quick Start
+## Quick Start (Vue + Vite)
 
 ### 1. Clone or Download
-
 ```bash
 git clone <repository-url>
 cd openRouter_UI
 ```
 
-### 2. Install and Run
-
-The easiest way to run this project is using `npx serve`:
-
+### 2. Install and Run (recommended)
 ```bash
-npx serve .
+npm install
+npm run dev
 ```
+Then open http://localhost:5173 (or the URL shown in the console).
 
-This will start a local server (typically on `http://localhost:3000` or `http://localhost:5000`).
-
-### 3. Access the Application
-
-Open your browser and navigate to the URL shown in the terminal output (usually `http://localhost:3000`).
+### 3. Alternative start scripts (port 3000)
+- Windows: `start.cmd`
+- macOS/Linux: `./start.sh`
 
 ### 4. Get Started
-
-1. **Enter your API Key**: Paste your OpenRouter API key in the "OpenRouter API Key" field
-2. **Choose Mode**: Select either "Text (Chat Completions)" or "Image Generation"
-3. **Select a Model**: Choose from the available free models (the interface will load them automatically)
-4. **Write a Prompt**: Enter your prompt in the text area
-5. **Run**: Click the "Run" button to generate your content
-
-## Alternative Running Methods
-
-### Using Python (if you have Python installed)
-
-```bash
-# Python 3
-python -m http.server 8000
-
-# Python 2
-python -m SimpleHTTPServer 8000
-```
-
-Then visit `http://localhost:8000`
-
-### Using PHP (if you have PHP installed)
-
-```bash
-php -S localhost:8000
-```
-
-Then visit `http://localhost:8000`
+1. Enter your API key.
+2. Choose mode (text or image).
+3. Select a model.
+4. Write a prompt and send.
 
 ## Important Notes
 
-- **Must run over HTTP**: This application must be served over HTTP (not opened as a file://) because it needs to make cross-origin requests to OpenRouter's API
-- **Free Models**: The interface automatically filters and displays only free models (where both prompt and completion pricing are "0")
-- **Image Generation**: Some models may not support multiple image generation (n>1). Google Gemini typically generates 1 image per request
-- **Streaming**: Enable streaming for real-time responses, or disable it for complete responses at once
+- Serve via `npm run dev`/`npm run preview` (do not open via file://).
+- Chats and regeneration branches persist in IndexedDB (Dexie).
+- API key “remember” uses localStorage.
 
 ## Configuration Options
 
