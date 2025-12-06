@@ -217,16 +217,15 @@ const newChat = async () => {
               @branch="handleBranchFromMessage"
             />
 
-            <ChatInput
-              :prompt="prompt"
-              :images="imagesStore.uploadedImages.value"
-              :disabled="chatStore.streaming.value"
-              @update:prompt="val => prompt = val"
-              @add-images="files => imagesStore.handleFiles(files)"
-              @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
-              @send="handleSend"
-            />
-          </div>
+          <ChatInput
+            :prompt="prompt"
+            :images="imagesStore.uploadedImages.value"
+            :disabled="chatStore.streaming.value"
+            @update:prompt="val => (prompt.value = val)"
+            @add-images="files => imagesStore.handleFiles(files)"
+            @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
+            @send="handleSend"
+          />
 
           <div v-else class="chat-tab-panel">
             <BranchList
