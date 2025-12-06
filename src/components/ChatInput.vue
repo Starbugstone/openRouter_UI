@@ -49,7 +49,9 @@ const onSend = () => emit('send');
     </div>
     <div id="imagePreview" class="image-preview">
       <div v-for="img in images" :key="img.data" class="image-preview-item">
-      <div v-for="(img, index) in images" :key="index" class="image-preview-item">        <button class="remove-btn" @click="removeImage(img.data)">×</button>
+        <div v-for="(img, index) in images" :key="index" class="image-preview-item">
+          <button class="remove-btn" @click="removeImage(img.data)">×</button>
+        </div>
       </div>
     </div>
   </div>
