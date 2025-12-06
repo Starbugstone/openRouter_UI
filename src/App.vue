@@ -25,8 +25,8 @@ const fileInput = ref(null);
 
 const selectedModelName = computed(() => modelsStore.selectedModel.value?.name || 'Select a model...');
 
-const regenHistory = computed(() => chatStore.regenerations.value?.history || []);
-const regenIndex = computed(() => chatStore.regenerations.value?.currentIndex ?? -1);
+const activeTab = ref('history');
+const branchList = computed(() => chatStore.branchTree.value);
 
 const selectedModelLinks = computed(() => {
   const model = modelsStore.selectedModel.value;
@@ -67,18 +67,22 @@ const handleSend = async () => {
   imagesStore.clearImages();
 };
 
-const handleRegenerate = async () => {
-  if (!chatStore.apiKey.value) {
-    alert('Please paste your OpenRouter API key.');
-    return;
-  }
-  await chatStore.regenerate({
-    apiKeyValue: chatStore.apiKey.value
-  });
+const handleStop = async () => {
+  await chatStore.stopStreaming();
 };
 
-const handleBranchSelect = async (index) => {
-  await chatStore.regenerateFromBranch(index);
+const handleBranchSelect = async (branchId) => {
+  await chatStore.setActiveBranch(branchId);
+};
+
+const handleCloneBranch = async () => {
+  await chatStore.cloneActiveBranch();
+};
+
+const handleBranchFromMessage = async (index) => {
+  const edited = window.prompt('Edit the message content before branching (optional):');
+  await chatStore.branchFromMessage(index, edited || null);
+  activeTab.value = 'history';
 };
 
 const handleModelCardClick = (model) => {
@@ -195,29 +199,43 @@ const newChat = async () => {
           <div class="chat-header">
             <label>Chat</label>
             <div class="chat-actions">
-              <button class="btn secondary" :disabled="chatStore.streaming.value" @click="handleRegenerate">Regenerate</button>
+              <button class="btn secondary" :disabled="!chatStore.streaming.value" @click="handleStop">Stop</button>
             </div>
+          </div>
+
+          <div class="chat-tabs">
+            <button class="tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">Chat History</button>
+            <button class="tab" :class="{ active: activeTab === 'branches' }" @click="activeTab = 'branches'">Branches</button>
           </div>
 
           <div v-if="chatStore.chatWarning.value" class="chat-warning">{{ chatStore.chatWarning.value }}</div>
 
-          <ChatMessages :messages="chatStore.messages.value" />
+          <div v-if="activeTab === 'history'" class="chat-tab-panel">
+            <ChatMessages
+              :messages="chatStore.messages.value"
+              :fallback-model-name="selectedModelName"
+              @branch="handleBranchFromMessage"
+            />
 
-          <ChatInput
-            :prompt="prompt"
-            :images="imagesStore.uploadedImages.value"
-            :disabled="chatStore.streaming.value"
-            @update:prompt="val => prompt = val"
-            @add-images="files => imagesStore.handleFiles(files)"
-            @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
-            @send="handleSend"
-          />
+            <ChatInput
+              :prompt="prompt"
+              :images="imagesStore.uploadedImages.value"
+              :disabled="chatStore.streaming.value"
+              @update:prompt="val => prompt = val"
+              @add-images="files => imagesStore.handleFiles(files)"
+              @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
+              @send="handleSend"
+            />
+          </div>
 
-          <BranchList
-            :history="regenHistory"
-            :current-index="regenIndex"
-            @select="handleBranchSelect"
-          />
+          <div v-else class="chat-tab-panel">
+            <BranchList
+              :branches="branchList"
+              :active-branch-id="chatStore.activeBranchId.value"
+              @select="handleBranchSelect"
+              @clone="handleCloneBranch"
+            />
+          </div>
         </div>
       </div>
     </div>

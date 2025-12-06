@@ -217,6 +217,34 @@ textarea {
   border-bottom: 1px solid #23262e;
 }
 
+.chat-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab {
+  background: #0e1015;
+  color: #e8eaed;
+  border: 1px solid #2a2e37;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.tab.active {
+  border-color: #2d7cff;
+  color: #fff;
+  background: rgba(45, 124, 255, 0.15);
+}
+
+.chat-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+}
+
 .chat-header label {
   margin: 0;
   font-size: 16px;
@@ -282,6 +310,22 @@ textarea {
   color: #9aa0aa;
   margin-top: 4px;
   padding: 0 8px;
+}
+
+.message-model {
+  margin-left: 8px;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.branch-btn {
+  height: 28px;
 }
 
 .chat-input-container {
@@ -420,6 +464,43 @@ textarea {
 
 .model-actions a:hover {
   text-decoration: underline;
+}
+
+.branch-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.branch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.branch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.branch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid #2a2e37;
+  padding: 10px;
+  border-radius: 10px;
+  background: #0e1015;
+}
+
+.branch-row.active {
+  border-color: #2d7cff;
+  box-shadow: 0 0 0 1px rgba(45, 124, 255, 0.4);
+}
+
+.branch-title {
+  font-weight: 600;
 }
 
 .model-links {

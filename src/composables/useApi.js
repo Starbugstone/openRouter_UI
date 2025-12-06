@@ -22,7 +22,7 @@ export async function checkApiKeyStatus(apiKey) {
   return res.json();
 }
 
-export async function sendChatCompletion({ apiKey, model, messages, stream = false, options = {} }) {
+export async function sendChatCompletion({ apiKey, model, messages, stream = false, options = {}, signal }) {
   const body = {
     model,
     messages,
@@ -40,7 +40,8 @@ export async function sendChatCompletion({ apiKey, model, messages, stream = fal
   const res = await fetch(CHAT_ENDPOINT, {
     method: 'POST',
     headers,
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
+    signal
   });
 
   if (!stream) {

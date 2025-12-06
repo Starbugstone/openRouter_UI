@@ -7,12 +7,9 @@ export function useChat(modelsStore) {
 
   const chats = ref([]);
   const activeChatId = ref(null);
+  const branches = ref([]);
+  const activeBranchId = ref(null);
   const messages = ref([]);
-  const regenerations = ref({
-    history: [],
-    currentIndex: -1,
-    lastUserMessage: null
-  });
 
   const apiKey = ref('');
   const rememberKey = ref(false);
@@ -22,8 +19,10 @@ export function useChat(modelsStore) {
   const imgCount = ref(1);
   const streaming = ref(false);
   const chatWarning = ref('');
+  const abortController = ref(null);
 
   const activeChat = computed(() => chats.value.find(c => c.id === activeChatId.value) || null);
+  const activeBranch = computed(() => branches.value.find(b => b.id === activeBranchId.value) || null);
 
   const init = async () => {
     chats.value = await listChats();
@@ -36,19 +35,21 @@ export function useChat(modelsStore) {
   };
 
   const createChat = async () => {
+    const baseBranch = createBranch({
+      title: 'Main',
+      parentId: null,
+      messages: [],
+      forkFromMessageIndex: null
+    });
     const chat = toPlainChat({
       id: `chat-${Date.now()}`,
       title: 'New chat',
-      messages: [],
       model: modelsStore.selectedModel.value
         ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
         : null,
       mode: mode.value,
-      regenerations: {
-        history: [],
-        currentIndex: -1,
-        lastUserMessage: null
-      },
+      branches: [baseBranch],
+      activeBranchId: baseBranch.id,
       updatedAt: new Date().toISOString()
     });
     await saveChat(chat);
@@ -61,9 +62,13 @@ export function useChat(modelsStore) {
     activeChatId.value = chatId;
     const chat = await getChat(chatId);
     if (!chat) return;
-    messages.value = chat.messages || [];
+
     mode.value = chat.mode || 'text';
-    regenerations.value = normalizeRegenerations(chat.regenerations);
+    const hydrated = hydrateBranches(chat);
+    branches.value = hydrated.branches;
+    activeBranchId.value = hydrated.activeBranchId;
+    messages.value = hydrated.activeBranch.messages;
+
     const currentSelected = modelsStore.selectedModel.value;
     const chatModelId = chat.model?.id;
     const candidateModel = chatModelId
@@ -98,69 +103,83 @@ export function useChat(modelsStore) {
     const chat = toPlainChat({
       id: activeChatId.value,
       title: buildTitle(messages.value),
-      messages: messages.value,
       model: modelsStore.selectedModel.value
         ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
         : null,
       mode: mode.value,
-      regenerations: regenerations.value,
+      branches: branches.value,
+      activeBranchId: activeBranchId.value,
       updatedAt: new Date().toISOString()
     });
     await saveChat(chat);
     chats.value = await listChats();
   };
 
+  const setActiveBranch = async (branchId) => {
+    const target = branches.value.find(b => b.id === branchId);
+    if (!target) return;
+    activeBranchId.value = branchId;
+    messages.value = target.messages;
+    await persist();
+  };
+
   const addUserMessage = async (content, images = []) => {
-    messages.value.push({
+    const branch = activeBranch.value;
+    if (!branch) return;
+    branch.messages.push({
       role: 'user',
       content,
       images,
       timestamp: new Date().toISOString()
     });
-    regenerations.value.lastUserMessage = { content, images };
-    regenerations.value.history = [];
-    regenerations.value.currentIndex = -1;
+    branch.updatedAt = new Date().toISOString();
+    messages.value = branch.messages;
     await persist();
   };
 
   const addAssistantMessage = async (content, images = []) => {
-    messages.value.push({
+    const branch = activeBranch.value;
+    if (!branch) return;
+    branch.messages.push({
       role: 'assistant',
       content,
       images,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      model: modelsStore.selectedModel.value
+        ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
+        : null
     });
-    regenerations.value.history.push({ content, images, timestamp: new Date().toISOString() });
-    regenerations.value.currentIndex = regenerations.value.history.length - 1;
+    branch.updatedAt = new Date().toISOString();
+    messages.value = branch.messages;
     await persist();
   };
 
   const updateLastAssistantMessage = (content, images = []) => {
-    for (let i = messages.value.length - 1; i >= 0; i--) {
-      if (messages.value[i].role === 'assistant') {
-        messages.value[i].content = content;
-        messages.value[i].images = images;
+    const branch = activeBranch.value;
+    if (!branch) return;
+    for (let i = branch.messages.length - 1; i >= 0; i--) {
+      if (branch.messages[i].role === 'assistant') {
+        branch.messages[i].content = content;
+        branch.messages[i].images = images;
+        branch.messages[i].model = modelsStore.selectedModel.value
+          ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
+          : branch.messages[i].model || null;
+        branch.updatedAt = new Date().toISOString();
+        messages.value = branch.messages;
         return;
       }
     }
   };
 
-  const regenerateFromBranch = async (index) => {
-    if (index < 0 || index >= regenerations.value.history.length) return;
-    regenerations.value.currentIndex = index;
-    const response = regenerations.value.history[index];
-    updateLastAssistantMessage(response.content, response.images);
-    await persist();
-  };
-
   const sendMessage = async ({ prompt, images, onStreamChunk, onDone, apiKeyValue }) => {
-    if (streaming.value) return; // or throw an error
+    if (streaming.value) return;
     const model = modelsStore.selectedModel.value;
     if (!model) throw new Error('Select a model');
     await addUserMessage(prompt, images);
 
     const payloadMessages = buildMessagesFromHistory(messages.value);
     streaming.value = true;
+    abortController.value = new AbortController();
 
     try {
       if (mode.value === 'image') {
@@ -170,31 +189,15 @@ export function useChat(modelsStore) {
       }
     } finally {
       streaming.value = false;
+      abortController.value = null;
     }
   };
-  const regenerate = async ({ apiKeyValue, onStreamChunk, onDone }) => {
-    const model = modelsStore.selectedModel.value;
-    if (!model) throw new Error('Select a model');
-    const lastUser = regenerations.value.lastUserMessage;
-    if (!lastUser) throw new Error('No user message to regenerate');
 
-    // Remove last assistant message if present to replace with a new branch
-    if (messages.value.length && messages.value[messages.value.length - 1].role === 'assistant') {
-      messages.value.pop();
+  const stopStreaming = async () => {
+    if (abortController.value) {
+      abortController.value.abort();
     }
-
-    const payloadMessages = buildMessagesFromHistory(messages.value);
-    streaming.value = true;
-
-    try {
-      if (mode.value === 'image') {
-        await sendImageFlow({ apiKeyValue, modelId: model.id, messages: payloadMessages, onStreamChunk, onDone });
-      } else {
-        await sendTextFlow({ apiKeyValue, modelId: model.id, messages: payloadMessages, onStreamChunk, onDone });
-      }
-    } finally {
-      streaming.value = false;
-    }
+    streaming.value = false;
   };
 
   const sendTextFlow = async ({ apiKeyValue, modelId, messages: payloadMessages, onStreamChunk, onDone }) => {
@@ -202,7 +205,8 @@ export function useChat(modelsStore) {
       apiKey: apiKeyValue,
       model: modelId,
       messages: payloadMessages,
-      stream: stream.value
+      stream: stream.value,
+      signal: abortController.value?.signal
     });
 
     if (!stream.value) {
@@ -215,22 +219,18 @@ export function useChat(modelsStore) {
 
     let assistantContent = '';
     let assistantImages = [];
-    // Always create a placeholder message up front for visibility
     messages.value.push({
       role: 'assistant',
       content: '…',
       images: [],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      model: modelsStore.selectedModel.value
+        ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
+        : null
     });
     const finalize = async () => {
       const finalContent = assistantContent.trim() || '[Empty response]';
       updateLastAssistantMessage(finalContent, assistantImages);
-      regenerations.value.history.push({
-        content: finalContent,
-        images: assistantImages,
-        timestamp: new Date().toISOString()
-      });
-      regenerations.value.currentIndex = regenerations.value.history.length - 1;
       await persist();
       if (onDone) onDone();
     };
@@ -256,12 +256,12 @@ export function useChat(modelsStore) {
         if (onStreamChunk) onStreamChunk({ content: assistantContent, images: assistantImages });
       }, finalize);
     } catch (err) {
-      // Remove or mark the placeholder message as failed
       updateLastAssistantMessage('[Error: Stream failed]', []);
       await persist();
       throw err;
     }
   };
+
   const sendImageFlow = async ({ apiKeyValue, modelId, messages: payloadMessages, onStreamChunk, onDone }) => {
     const options = { modalities: ['image', 'text'], n: imgCount.value };
     const response = await sendChatCompletion({
@@ -269,7 +269,8 @@ export function useChat(modelsStore) {
       model: modelId,
       messages: payloadMessages,
       stream: stream.value,
-      options
+      options,
+      signal: abortController.value?.signal
     });
 
     if (!stream.value) {
@@ -286,13 +287,14 @@ export function useChat(modelsStore) {
       role: 'assistant',
       content: '…',
       images: [],
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      model: modelsStore.selectedModel.value
+        ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
+        : null
     });
     const finalize = async () => {
       const finalContent = assistantContent.trim() || `Generated ${assistantImages.length} image(s):`;
       updateLastAssistantMessage(finalContent, assistantImages);
-      regenerations.value.history.push({ content: finalContent, images: assistantImages, timestamp: new Date().toISOString() });
-      regenerations.value.currentIndex = regenerations.value.history.length - 1;
       await persist();
       if (onDone) onDone();
     };
@@ -317,23 +319,65 @@ export function useChat(modelsStore) {
     }, finalize);
   };
 
-  const buildTitle = (history) => {
-    const firstUser = (history || []).find(m => m.role === 'user' && m.content);
-    if (firstUser && typeof firstUser.content === 'string') {
-      const trimmed = firstUser.content.trim();
-      if (trimmed.length > 0) {
-        return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
-      }
-    }
-    return 'New chat';
+  const cloneActiveBranch = async () => {
+    const branch = activeBranch.value;
+    if (!branch) return;
+    const cloned = createBranch({
+      title: `${branch.title} (Copy)`,
+      parentId: branch.parentId,
+      messages: branch.messages.map(m => ({ ...m })),
+      forkFromMessageIndex: branch.forkFromMessageIndex ?? null
+    });
+    branches.value.push(cloned);
+    activeBranchId.value = cloned.id;
+    messages.value = cloned.messages;
+    await persist();
   };
+
+  const branchFromMessage = async (messageIndex, editedContent = null) => {
+    const branch = activeBranch.value;
+    if (!branch) return;
+    if (messageIndex <= 0 || messageIndex >= branch.messages.length) return;
+    const baseMessages = branch.messages.slice(0, messageIndex + 1).map((msg, idx) => {
+      if (idx === messageIndex && editedContent && msg.role === 'user') {
+        return { ...msg, content: editedContent };
+      }
+      return { ...msg };
+    });
+    const newBranch = createBranch({
+      title: `Branch ${branches.value.length + 1}`,
+      parentId: branch.id,
+      messages: baseMessages,
+      forkFromMessageIndex: messageIndex
+    });
+    branches.value.push(newBranch);
+    activeBranchId.value = newBranch.id;
+    messages.value = newBranch.messages;
+    await persist();
+  };
+
+  const branchTree = computed(() => {
+    const map = new Map();
+    branches.value.forEach(br => map.set(br.id, { ...br, children: [] }));
+    const roots = [];
+    map.forEach(node => {
+      if (node.parentId && map.has(node.parentId)) {
+        map.get(node.parentId).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    });
+    return roots;
+  });
 
   return {
     chats,
     activeChatId,
     activeChat,
+    branches,
+    activeBranchId,
+    activeBranch,
     messages,
-    regenerations,
     apiKey,
     rememberKey,
     mode,
@@ -342,33 +386,89 @@ export function useChat(modelsStore) {
     imgCount,
     streaming,
     chatWarning,
+    branchTree,
     init,
     createChat,
     selectChat,
     deleteChat,
     persist,
+    setActiveBranch,
     addUserMessage,
     addAssistantMessage,
     updateLastAssistantMessage,
-    regenerateFromBranch,
     sendMessage,
-    regenerate
+    stopStreaming,
+    cloneActiveBranch,
+    branchFromMessage
   };
 }
 
-function normalizeRegenerations(reg) {
-  if (!reg) {
+function createBranch({ title, parentId, messages, forkFromMessageIndex }) {
+  const now = new Date().toISOString();
+  const uuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`;
+  return {
+    id: `branch-${uuid}`,
+    title,
+    parentId,
+    messages: messages || [],
+    forkFromMessageIndex: typeof forkFromMessageIndex === 'number' ? forkFromMessageIndex : null,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function hydrateBranches(chat) {
+  if (Array.isArray(chat.branches) && chat.branches.length) {
+    const normalized = chat.branches.map(normalizeBranch);
+    const activeId = chat.activeBranchId && normalized.find(b => b.id === chat.activeBranchId)
+      ? chat.activeBranchId
+      : normalized[0].id;
     return {
-      history: [],
-      currentIndex: -1,
-      lastUserMessage: null
+      branches: normalized,
+      activeBranchId: activeId,
+      activeBranch: normalized.find(b => b.id === activeId)
     };
   }
+  const fallback = createBranch({
+    title: 'Main',
+    parentId: null,
+    messages: chat.messages || [],
+    forkFromMessageIndex: null
+  });
+  return { branches: [fallback], activeBranchId: fallback.id, activeBranch: fallback };
+}
+
+function normalizeBranch(branch) {
   return {
-    history: Array.isArray(reg.history) ? reg.history : [],
-    currentIndex: typeof reg.currentIndex === 'number' ? reg.currentIndex : -1,
-    lastUserMessage: reg.lastUserMessage || null
+    id: branch.id,
+    title: branch.title || 'Branch',
+    parentId: branch.parentId || null,
+    forkFromMessageIndex: typeof branch.forkFromMessageIndex === 'number' ? branch.forkFromMessageIndex : null,
+    messages: Array.isArray(branch.messages) ? branch.messages : [],
+    createdAt: branch.createdAt || new Date().toISOString(),
+    updatedAt: branch.updatedAt || new Date().toISOString()
   };
+}
+
+function buildTitle(history) {
+  const firstUser = (history || []).find(m => m.role === 'user' && m.content);
+  if (firstUser && typeof firstUser.content === 'string') {
+    const trimmed = firstUser.content.trim();
+    if (trimmed.length > 0) {
+      return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
+    }
+  }
+  return 'New chat';
+}
+
+function toPlainMessages(msgs = []) {
+  return msgs.map(m => ({
+    role: m.role,
+    content: m.content,
+    images: toPlainImages(m.images || []),
+    timestamp: m.timestamp,
+    model: m.model ? { id: m.model.id, name: m.model.name } : null
+  }));
 }
 
 function toPlainImages(images = []) {
@@ -382,37 +482,22 @@ function toPlainImages(images = []) {
   });
 }
 
-function toPlainMessages(msgs = []) {
-  return msgs.map(m => ({
-    role: m.role,
-    content: m.content,
-    images: toPlainImages(m.images || []),
-    timestamp: m.timestamp
-  }));
-}
-
-function toPlainRegenerations(reg) {
-  return {
-    history: (reg?.history || []).map(r => ({
-      content: r.content,
-      images: toPlainImages(r.images || []),
-      timestamp: r.timestamp
-    })),
-    currentIndex: typeof reg?.currentIndex === 'number' ? reg.currentIndex : -1,
-    lastUserMessage: reg?.lastUserMessage
-      ? { content: reg.lastUserMessage.content, images: toPlainImages(reg.lastUserMessage.images || []) }
-      : null
-  };
-}
-
 function toPlainChat(chat) {
   return {
     id: chat.id,
     title: chat.title,
-    messages: toPlainMessages(chat.messages || []),
     model: chat.model ? { id: chat.model.id, name: chat.model.name } : null,
     mode: chat.mode || 'text',
-    regenerations: toPlainRegenerations(chat.regenerations),
+    branches: (chat.branches || []).map(branch => ({
+      id: branch.id,
+      title: branch.title,
+      parentId: branch.parentId,
+      forkFromMessageIndex: typeof branch.forkFromMessageIndex === 'number' ? branch.forkFromMessageIndex : null,
+      messages: toPlainMessages(branch.messages || []),
+      createdAt: branch.createdAt,
+      updatedAt: branch.updatedAt
+    })),
+    activeBranchId: chat.activeBranchId,
     updatedAt: chat.updatedAt || new Date().toISOString()
   };
 }
