@@ -49,8 +49,12 @@ const onSend = () => emit('send');
       <button class="btn" :disabled="disabled" @click="onSend">Send</button>
     </div>
     <div id="imagePreview" class="image-preview">
-      <div v-for="(img, index) in images" :key="index" class="image-preview-item">
-        <img :src="typeof img === 'string' ? img : img.data" :alt="img.name || 'Uploaded image'" />
+      <div
+        v-for="(img, index) in images"
+        :key="typeof img === 'string' ? `${img}-${index}` : (img && img.data) || index"
+        class="image-preview-item"
+      >
+        <img :src="typeof img === 'string' ? img : img.data" :alt="(img && img.name) || 'Uploaded image'" />
         <button class="remove-btn" @click="removeImage(typeof img === 'string' ? img : img.data)">×</button>
       </div>
     </div>
