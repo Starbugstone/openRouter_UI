@@ -1,10 +1,12 @@
 <script setup>
 const props = defineProps({
   messages: { type: Array, default: () => [] },
-  fallbackModelName: { type: String, default: 'Unknown model' }
+  fallbackModelName: { type: String, default: 'Unknown model' },
+  streaming: { type: Boolean, default: false },
+  canRegenerate: { type: Boolean, default: false }
 });
 
-const emit = defineEmits(['branch']);
+const emit = defineEmits(['branch', 'regenerate']);
 
 const modelLabel = (message) => {
   if (message.model?.name) return message.model.name;
@@ -14,6 +16,11 @@ const modelLabel = (message) => {
 const canBranchFrom = (index, message) => {
   if (!message || message.role !== 'user') return false;
   return index > 0;
+};
+
+const isLatestAssistant = (index, message) => {
+  if (!message || message.role !== 'assistant') return false;
+  return index === props.messages.length - 1;
 };
 </script>
 
@@ -40,6 +47,16 @@ const canBranchFrom = (index, message) => {
           @click="emit('branch', idx)"
         >
           Branch here
+        </button>
+      </div>
+
+      <div v-if="isLatestAssistant(idx, msg)" class="message-actions">
+        <button
+          class="btn secondary btn-compact regen-btn"
+          :disabled="streaming || !canRegenerate"
+          @click="emit('regenerate')"
+        >
+          Regenerate
         </button>
       </div>
     </div>

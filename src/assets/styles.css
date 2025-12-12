@@ -501,32 +501,169 @@ textarea {
   justify-content: space-between;
 }
 
-.branch-list {
+.branch-tree {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  padding: 2px 0;
 }
 
-.branch-row {
+.branch-tree-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 0;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.branch-tree-row:hover .branch-node {
+  border-color: #3a3e47;
+  background: #111318;
+}
+
+.branch-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   border: 1px solid #2a2e37;
   padding: 10px;
   border-radius: 10px;
   background: #0e1015;
+  flex: 1;
+  min-width: 0;
 }
 
-.branch-row.active {
+.branch-tree-row.active .branch-node {
   border-color: #2d7cff;
   box-shadow: 0 0 0 1px rgba(45, 124, 255, 0.4);
 }
 
+.branch-tree-gutter {
+  display: flex;
+  align-items: stretch;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.tree-col {
+  width: 16px;
+  position: relative;
+}
+
+.tree-vline {
+  position: absolute;
+  left: 7px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+
+.tree-vline.draw {
+  background: #303544;
+}
+
+.tree-self {
+  width: 18px;
+}
+
+.tree-connector-up {
+  position: absolute;
+  left: 7px;
+  top: 0;
+  height: 50%;
+  width: 2px;
+  background: #303544;
+}
+
+.tree-connector-down {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  bottom: 0;
+  width: 2px;
+  background: #303544;
+}
+
+.tree-elbow {
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  background: #303544;
+}
+
+.tree-dot {
+  position: absolute;
+  left: 3px;
+  top: calc(50% - 4px);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #0b0c10;
+  border: 2px solid #404657;
+  box-sizing: border-box;
+}
+
+.branch-tree-row.active .tree-dot {
+  border-color: #2d7cff;
+}
+
+.message-actions {
+  margin-top: 8px;
+  display: flex;
+}
+
+.message.assistant .message-actions {
+  justify-content: flex-start;
+}
+
+.message.user .message-actions {
+  justify-content: flex-end;
+}
+
+.branch-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.branch-rename-input {
+  width: 260px;
+  max-width: 44vw;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #0b0c10;
+  border: 1px solid #3a3e47;
+  color: #e8eaed;
+}
+
 .branch-title {
   font-weight: 600;
+}
+
+.chat-branch-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #23262e;
+  border-radius: 10px;
+  background: #0e1015;
+}
+
+.chat-branch-controls-right {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .model-links {

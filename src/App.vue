@@ -71,6 +71,14 @@ const handleStop = async () => {
   await chatStore.stopStreaming();
 };
 
+const handleRegenerate = async () => {
+  if (!chatStore.apiKey.value) {
+    alert('Please paste your OpenRouter API key.');
+    return;
+  }
+  await chatStore.regenerateLastAssistantReply({ apiKeyValue: chatStore.apiKey.value });
+};
+
 const handleBranchSelect = async (branchId) => {
   await chatStore.setActiveBranch(branchId);
 };
@@ -214,8 +222,27 @@ const newChat = async () => {
             <ChatMessages
               :messages="chatStore.messages.value"
               :fallback-model-name="selectedModelName"
+              :streaming="chatStore.streaming.value"
+              :can-regenerate="chatStore.canRegenerate.value"
               @branch="handleBranchFromMessage"
+              @regenerate="handleRegenerate"
             />
+
+            <div class="chat-branch-controls">
+              <div class="chat-branch-controls-left">
+                <span class="muted small">
+                  Branch: <strong>{{ chatStore.activeBranch.value?.title || '—' }}</strong>
+                  <span v-if="chatStore.siblingBranches.value.length > 1">
+                    ({{ chatStore.siblingBranchIndex.value + 1 }}/{{ chatStore.siblingBranches.value.length }})
+                  </span>
+                </span>
+              </div>
+              <div class="chat-branch-controls-right">
+                <button class="btn secondary btn-compact" :disabled="!chatStore.canSelectPrevSibling.value" @click="chatStore.selectPrevSiblingBranch">◀ Prev</button>
+                <button class="btn secondary btn-compact" :disabled="!chatStore.canSelectNextSibling.value" @click="chatStore.selectNextSiblingBranch">Next ▶</button>
+                <button class="btn secondary btn-compact" @click="activeTab = 'branches'">Tree…</button>
+              </div>
+            </div>
 
             <ChatInput
               v-model:prompt="prompt"
@@ -233,6 +260,7 @@ const newChat = async () => {
               :active-branch-id="chatStore.activeBranchId.value"
               @select="handleBranchSelect"
               @clone="handleCloneBranch"
+              @rename="(id, title) => chatStore.renameBranch(id, title)"
             />
           </div>
         </div>
