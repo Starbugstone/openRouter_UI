@@ -45,3 +45,4 @@ const onImgCountChange = (event) => emit('update:imgCount', Number(event.target.
     </label>
   </div>
 </template>
+

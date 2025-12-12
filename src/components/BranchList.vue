@@ -49,3 +49,4 @@ const flattened = computed(() => {
     </div>
   </div>
 </template>
+

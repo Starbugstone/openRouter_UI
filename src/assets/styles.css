@@ -118,6 +118,7 @@ textarea {
   flex-direction: column;
   height: 600px;
   max-height: 80vh;
+  overflow: hidden;
 }
 
 .chat-layout {
@@ -206,6 +207,7 @@ textarea {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  overflow: hidden;
 }
 
 .chat-header {
@@ -219,23 +221,40 @@ textarea {
 
 .chat-tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 2px;
+  margin: 0 0 0;
+  padding: 0 6px;
+  border-bottom: 1px solid #23262e;
+  background: #0e1015;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
 }
 
 .tab {
-  background: #0e1015;
+  background: #0b0c10;
   color: #e8eaed;
   border: 1px solid #2a2e37;
-  border-radius: 8px;
-  padding: 8px 12px;
+  border-bottom: none;
+  border-top-left-radius: 10px;
+  border-top-right-radius: 10px;
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  padding: 9px 14px;
   cursor: pointer;
+  position: relative;
+  top: 1px;
+}
+
+.tab:hover {
+  background: #111318;
+  border-color: #3a3e47;
 }
 
 .tab.active {
-  border-color: #2d7cff;
+  border-color: #23262e;
   color: #fff;
-  background: rgba(45, 124, 255, 0.15);
+  background: #111318;
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.04) inset;
 }
 
 .chat-tab-panel {
@@ -243,6 +262,8 @@ textarea {
   flex-direction: column;
   gap: 12px;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .chat-header label {
@@ -470,6 +491,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex: 1;
+  min-height: 0;
 }
 
 .branch-header {
@@ -482,6 +505,9 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .branch-row {
@@ -827,3 +853,4 @@ textarea {
     width: 100%;
   }
 }
+

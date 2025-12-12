@@ -501,3 +501,4 @@ function toPlainChat(chat) {
     updatedAt: chat.updatedAt || new Date().toISOString()
   };
 }
+

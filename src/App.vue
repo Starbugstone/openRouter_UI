@@ -218,10 +218,9 @@ const newChat = async () => {
             />
 
             <ChatInput
-              :prompt="prompt"
+              v-model:prompt="prompt"
               :images="imagesStore.uploadedImages.value"
               :disabled="chatStore.streaming.value"
-              @update:prompt="val => (prompt.value = val)"
               @add-images="files => imagesStore.handleFiles(files)"
               @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
               @send="handleSend"
@@ -278,3 +277,4 @@ const newChat = async () => {
     />
   </div>
 </template>
+

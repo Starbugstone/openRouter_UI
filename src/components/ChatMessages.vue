@@ -45,3 +45,4 @@ const canBranchFrom = (index, message) => {
     </div>
   </div>
 </template>
+

@@ -162,3 +162,4 @@ async function buildError(res) {
   const text = await res.text();
   return new Error(`HTTP ${res.status} – ${text || res.statusText}`);
 }
+
