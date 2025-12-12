@@ -649,6 +649,81 @@ textarea {
   font-weight: 600;
 }
 
+.branch-graph-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.branch-graph-hint {
+  margin-top: -6px;
+}
+
+.branch-graph-canvas {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid #23262e;
+  border-radius: 12px;
+  background: radial-gradient(1200px 500px at 20% 10%, rgba(45, 124, 255, 0.08), rgba(0, 0, 0, 0)),
+    #0b0c10;
+  overflow: hidden;
+}
+
+.branch-graph-svg {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+
+.branch-graph-svg:active {
+  cursor: grabbing;
+}
+
+.branch-graph-link {
+  fill: none;
+  stroke-width: 3px;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+
+.branch-graph-node {
+  user-select: none;
+}
+
+.branch-graph-dot {
+  stroke: #3a3e47;
+}
+
+.branch-graph-label {
+  font-size: 12px;
+  fill: #e8eaed;
+  paint-order: stroke;
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 3px;
+}
+
+.branch-graph-label.active {
+  fill: #bcd6ff;
+}
+
+.branch-graph-toggle {
+  font-size: 14px;
+  fill: #9aa4b2;
+  cursor: pointer;
+}
+
+.branch-graph-rename {
+  font-size: 11px;
+  fill: #9aa4b2;
+  cursor: pointer;
+  opacity: 0.0;
+}
+
+.branch-graph-node:hover .branch-graph-rename {
+  opacity: 1.0;
+}
+
 .chat-branch-controls {
   display: flex;
   align-items: center;
@@ -990,4 +1065,3 @@ textarea {
     width: 100%;
   }
 }
-

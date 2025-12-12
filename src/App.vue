@@ -11,7 +11,7 @@ import ModelSelectorModal from './components/ModelSelectorModal.vue';
 import ChatSidebar from './components/ChatSidebar.vue';
 import ChatMessages from './components/ChatMessages.vue';
 import ChatInput from './components/ChatInput.vue';
-import BranchList from './components/BranchList.vue';
+import BranchGraph from './components/BranchGraph.vue';
 
 const modelsStore = useModels();
 const chatStore = useChat(modelsStore);
@@ -88,8 +88,12 @@ const handleCloneBranch = async () => {
 };
 
 const handleBranchFromMessage = async (index) => {
+  if (!chatStore.apiKey.value) {
+    alert('Please paste your OpenRouter API key.');
+    return;
+  }
   const edited = window.prompt('Edit the message content before branching (optional):');
-  await chatStore.branchFromMessage(index, edited || null);
+  await chatStore.branchFromMessage(index, edited || null, { generate: true, apiKeyValue: chatStore.apiKey.value });
   activeTab.value = 'history';
 };
 
@@ -255,7 +259,7 @@ const newChat = async () => {
           </div>
 
           <div v-else class="chat-tab-panel">
-            <BranchList
+            <BranchGraph
               :branches="branchList"
               :active-branch-id="chatStore.activeBranchId.value"
               @select="handleBranchSelect"
@@ -305,4 +309,3 @@ const newChat = async () => {
     />
   </div>
 </template>
-

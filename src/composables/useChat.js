@@ -317,17 +317,17 @@ export function useChat(modelsStore) {
     }
     if (lastUserIndex < 0) return;
 
-    // Regenerate should not overwrite the current branch; it should create a sibling branch.
-    const baseMessages = branch.messages
-      .slice(0, lastUserIndex + 1)
-      .map(m => ({ ...m }));
+    // Split this branch at the last user message, then regenerate as a new sub-branch.
+    const baseMessages = branch.messages.slice(0, lastUserIndex + 1).map(m => ({ ...m }));
 
-    const siblingCount = branches.value.filter(b => (b.parentId || null) === (branch.parentId || null)).length;
+    const baseBranch = await ensureBranchSplitAt({ branchId: branch.id, forkIndex: lastUserIndex });
+    if (!baseBranch) return;
+    const siblingCount = branches.value.filter(b => (b.parentId || null) === (baseBranch.id || null)).length;
     const newBranch = createBranch({
       title: `${branch.title} (Alt ${siblingCount + 1})`,
-      parentId: branch.parentId || null,
+      parentId: baseBranch.id,
       messages: baseMessages,
-      forkFromMessageIndex: typeof branch.forkFromMessageIndex === 'number' ? branch.forkFromMessageIndex : null
+      forkFromMessageIndex: lastUserIndex
     });
 
     branches.value.push(newBranch);
@@ -520,7 +520,44 @@ export function useChat(modelsStore) {
     await persist();
   };
 
-  const branchFromMessage = async (messageIndex, editedContent = null) => {
+  const ensureBranchSplitAt = async ({ branchId, forkIndex }) => {
+    const branch = branches.value.find(b => b.id === branchId);
+    if (!branch) return null;
+    if (!Number.isInteger(forkIndex) || forkIndex <= 0 || forkIndex >= branch.messages.length) return branch;
+
+    // If already split (parent branch is truncated at forkIndex), don't split again.
+    if (branch.messages.length === forkIndex + 1) return branch;
+
+    const now = new Date().toISOString();
+    const originalFullMessages = branch.messages.map(m => ({ ...m }));
+    const baseMessages = branch.messages.slice(0, forkIndex + 1).map(m => ({ ...m }));
+
+    // Create a child branch that preserves the current full continuation.
+    const preserved = createBranch({
+      title: `${branch.title} (Original)`,
+      parentId: branch.id,
+      messages: originalFullMessages,
+      forkFromMessageIndex: forkIndex
+    });
+
+    // Re-parent existing children that fork after the new truncation point.
+    branches.value.forEach((child) => {
+      if (child.parentId !== branch.id) return;
+      const childFork = typeof child.forkFromMessageIndex === 'number' ? child.forkFromMessageIndex : null;
+      if (childFork !== null && childFork <= forkIndex) return;
+      child.parentId = preserved.id;
+    });
+
+    // Truncate the current branch in-place into the fork base.
+    branch.messages = baseMessages;
+    branch.updatedAt = now;
+
+    branches.value.push(preserved);
+    return branch;
+  };
+
+  const branchFromMessage = async (messageIndex, editedContent = null, options = {}) => {
+    if (streaming.value) return;
     const branch = activeBranch.value;
     if (!branch) return;
     if (messageIndex <= 0 || messageIndex >= branch.messages.length) return;
@@ -530,9 +567,12 @@ export function useChat(modelsStore) {
       }
       return { ...msg };
     });
+
+    const baseBranch = await ensureBranchSplitAt({ branchId: branch.id, forkIndex: messageIndex });
+    if (!baseBranch) return;
     const newBranch = createBranch({
       title: `Branch ${branches.value.length + 1}`,
-      parentId: branch.id,
+      parentId: baseBranch.id,
       messages: baseMessages,
       forkFromMessageIndex: messageIndex
     });
@@ -540,6 +580,18 @@ export function useChat(modelsStore) {
     activeBranchId.value = newBranch.id;
     messages.value = newBranch.messages;
     await persist();
+
+    if (options?.generate) {
+      const key = options.apiKeyValue || apiKey.value;
+      if (!key) return newBranch;
+      await sendFromCurrentHistory({
+        apiKeyValue: key,
+        onStreamChunk: options.onStreamChunk,
+        onDone: options.onDone
+      });
+    }
+
+    return newBranch;
   };
 
   const branchTree = computed(() => {
@@ -696,4 +748,3 @@ function toPlainChat(chat) {
     updatedAt: chat.updatedAt || new Date().toISOString()
   };
 }
-
