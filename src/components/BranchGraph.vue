@@ -7,7 +7,7 @@ const props = defineProps({
   activeBranchId: { type: String, default: '' }
 });
 
-const emit = defineEmits(['select', 'clone', 'rename']);
+const emit = defineEmits(['select', 'clone', 'rename', 'move']);
 
 const containerEl = ref(null);
 const svgEl = ref(null);
@@ -16,12 +16,23 @@ const collapsedIds = ref(new Set());
 const zoomTransform = ref(d3.zoomIdentity);
 const hasUserMoved = ref(false);
 
-let resizeObserver = null;
-let svgSel = null;
-let viewportSel = null;
-let linksSel = null;
-let nodesSel = null;
-let zoomBehavior = null;
+/**
+ * Per-instance (non-reactive) state for D3/DOM handles.
+ * Kept in a factory to guarantee no cross-instance sharing.
+ */
+const createGraphState = () => ({
+  resizeObserver: null,
+  svgSel: null,
+  viewportSel: null,
+  linksSel: null,
+  nodesSel: null,
+  zoomBehavior: null,
+  localOffsets: new Map(), // branchId -> { dx, dy }
+  dragState: null,
+  rafPending: false
+});
+
+const graphState = createGraphState();
 
 const toggleCollapse = (id) => {
   const next = new Set(collapsedIds.value);
@@ -52,6 +63,31 @@ const promptRename = (node) => {
   emit('rename', node.data.id, title);
 };
 
+const getOwnOffset = (data) => {
+  if (!data || !data.id || data.id === '__root__') return { dx: 0, dy: 0 };
+  const local = graphState.localOffsets.get(data.id);
+  if (local) return local;
+  const ui = data.ui && typeof data.ui === 'object' ? data.ui : null;
+  return {
+    dx: Number.isFinite(ui?.dx) ? ui.dx : 0,
+    dy: Number.isFinite(ui?.dy) ? ui.dy : 0
+  };
+};
+
+const setOwnOffset = (id, dx, dy) => {
+  if (!id || id === '__root__') return;
+  graphState.localOffsets.set(id, { dx, dy });
+};
+
+const scheduleRender = () => {
+  if (graphState.rafPending) return;
+  graphState.rafPending = true;
+  requestAnimationFrame(() => {
+    graphState.rafPending = false;
+    render();
+  });
+};
+
 const getRootData = () => {
   if (props.branches.length === 1) return props.branches[0];
   return {
@@ -66,23 +102,23 @@ const getRootData = () => {
 };
 
 const initSvg = () => {
-  svgSel = d3.select(svgEl.value);
-  svgSel.selectAll('*').remove();
+  graphState.svgSel = d3.select(svgEl.value);
+  graphState.svgSel.selectAll('*').remove();
 
-  viewportSel = svgSel.append('g').attr('class', 'branch-graph-viewport');
-  linksSel = viewportSel.append('g').attr('class', 'branch-graph-links');
-  nodesSel = viewportSel.append('g').attr('class', 'branch-graph-nodes');
+  graphState.viewportSel = graphState.svgSel.append('g').attr('class', 'branch-graph-viewport');
+  graphState.linksSel = graphState.viewportSel.append('g').attr('class', 'branch-graph-links');
+  graphState.nodesSel = graphState.viewportSel.append('g').attr('class', 'branch-graph-nodes');
 
-  zoomBehavior = d3
+  graphState.zoomBehavior = d3
     .zoom()
     .scaleExtent([0.25, 2.5])
     .on('zoom', (event) => {
-      viewportSel.attr('transform', event.transform);
+      graphState.viewportSel.attr('transform', event.transform);
       zoomTransform.value = event.transform;
       hasUserMoved.value = true;
     });
 
-  svgSel.call(zoomBehavior).on('dblclick.zoom', null);
+  graphState.svgSel.call(graphState.zoomBehavior).on('dblclick.zoom', null);
 };
 
 const fitToView = (bounds, width, height) => {
@@ -96,17 +132,17 @@ const fitToView = (bounds, width, height) => {
   const ty = (height - contentH * scale) / 2 - bounds.minY * scale;
   const t = d3.zoomIdentity.translate(tx, ty).scale(scale);
   zoomTransform.value = t;
-  svgSel.call(zoomBehavior.transform, t);
+  graphState.svgSel.call(graphState.zoomBehavior.transform, t);
 };
 
 const render = () => {
   if (!containerEl.value || !svgEl.value) return;
-  if (!svgSel) initSvg();
+  if (!graphState.svgSel) initSvg();
 
   const { width, height } = containerEl.value.getBoundingClientRect();
   const w = Math.max(1, Math.floor(width));
   const h = Math.max(1, Math.floor(height));
-  svgSel.attr('width', w).attr('height', h);
+  graphState.svgSel.attr('width', w).attr('height', h);
 
   const rootData = getRootData();
   const hierarchy = d3.hierarchy(rootData, (d) => {
@@ -127,8 +163,23 @@ const render = () => {
   const color = d3.scaleOrdinal(d3.schemeTableau10).domain(rootChildren);
   const groupId = (d) => d.ancestors().find((a) => a.depth === 1)?.data?.id || d.data.id;
 
-  const xVals = nodes.map((d) => d.x);
-  const yVals = nodes.map((d) => d.y);
+  // Apply cumulative offsets (so dragging a node moves its whole subtree).
+  hierarchy.eachBefore((node) => {
+    const parentDx = node.parent ? node.parent._cumDx || 0 : 0;
+    const parentDy = node.parent ? node.parent._cumDy || 0 : 0;
+    const own = getOwnOffset(node.data);
+    node._cumDx = parentDx + own.dx;
+    node._cumDy = parentDy + own.dy;
+  });
+
+  const xVals = [];
+  const yVals = [];
+  nodes.forEach((d) => {
+    const x = d.x + (d._cumDx || 0);
+    const y = d.y + (d._cumDy || 0);
+    xVals.push(x);
+    yVals.push(y);
+  });
   const minX = Math.min(...xVals) - 40;
   const maxX = Math.max(...xVals) + 320;
   const minY = Math.min(...yVals) - 60;
@@ -137,10 +188,13 @@ const render = () => {
   const xOff = -minX;
   const yOff = -minY;
 
-  const at = (d) => ({ x: d.x + xOff, y: d.y + yOff });
+  const at = (d) => ({
+    x: d.x + xOff + (d._cumDx || 0),
+    y: d.y + yOff + (d._cumDy || 0)
+  });
   const linkGen = d3.linkVertical().x((d) => d.x).y((d) => d.y);
 
-  linksSel
+  graphState.linksSel
     .selectAll('path.branch-graph-link')
     .data(links, (d) => `${d.source.data.id}->${d.target.data.id}`)
     .join(
@@ -151,7 +205,7 @@ const render = () => {
     .attr('d', (d) => linkGen({ source: at(d.source), target: at(d.target) }))
     .attr('stroke', (d) => color(groupId(d.target)) || '#3a3e47');
 
-  const nodeSel = nodesSel.selectAll('g.branch-graph-node').data(nodes, (d) => d.data.id);
+  const nodeSel = graphState.nodesSel.selectAll('g.branch-graph-node').data(nodes, (d) => d.data.id);
 
   const nodeEnter = nodeSel
     .enter()
@@ -203,6 +257,48 @@ const render = () => {
     return `translate(${p.x},${p.y})`;
   });
 
+  nodeMerge.call(
+    d3
+      .drag()
+      .on('start', (event, d) => {
+        if (d.data.id === '__root__') return;
+        hasUserMoved.value = true;
+        event.sourceEvent?.stopPropagation();
+        if (!event.sourceEvent) return;
+        const [sx, sy] = d3.pointer(event.sourceEvent, svgEl.value);
+        const [gx, gy] = zoomTransform.value.invert([sx, sy]);
+        const own = getOwnOffset(d.data);
+        graphState.dragState = {
+          id: d.data.id,
+          startDx: own.dx,
+          startDy: own.dy,
+          startPx: gx,
+          startPy: gy
+        };
+      })
+      .on('drag', (event, d) => {
+        if (!graphState.dragState || d.data.id !== graphState.dragState.id) return;
+        event.sourceEvent?.stopPropagation();
+        if (!event.sourceEvent) return;
+        const [sx, sy] = d3.pointer(event.sourceEvent, svgEl.value);
+        const [gx, gy] = zoomTransform.value.invert([sx, sy]);
+        const dx = graphState.dragState.startDx + (gx - graphState.dragState.startPx);
+        const dy = graphState.dragState.startDy + (gy - graphState.dragState.startPy);
+        setOwnOffset(graphState.dragState.id, dx, dy);
+        scheduleRender();
+      })
+      .on('end', (event, d) => {
+        if (!graphState.dragState || d.data.id !== graphState.dragState.id) return;
+        event.sourceEvent?.stopPropagation();
+        const final = graphState.localOffsets.get(graphState.dragState.id) || {
+          dx: graphState.dragState.startDx,
+          dy: graphState.dragState.startDy
+        };
+        emit('move', graphState.dragState.id, final.dx, final.dy);
+        graphState.dragState = null;
+      })
+  );
+
   nodeMerge
     .select('circle.branch-graph-dot')
     .attr('stroke', (d) => {
@@ -234,21 +330,22 @@ const render = () => {
   if (!hasUserMoved.value) {
     fitToView({ minX: 0, minY: 0, maxX: maxX - minX, maxY: maxY - minY }, w, h);
   } else {
-    svgSel.call(zoomBehavior.transform, zoomTransform.value);
+    graphState.svgSel.call(graphState.zoomBehavior.transform, zoomTransform.value);
   }
 };
 
 onMounted(async () => {
   await nextTick();
+  if (!containerEl.value) return;
   initSvg();
   render();
-  resizeObserver = new ResizeObserver(() => render());
-  resizeObserver.observe(containerEl.value);
+  graphState.resizeObserver = new ResizeObserver(() => render());
+  graphState.resizeObserver.observe(containerEl.value);
 });
 
 onBeforeUnmount(() => {
-  if (resizeObserver) resizeObserver.disconnect();
-  resizeObserver = null;
+  if (graphState.resizeObserver) graphState.resizeObserver.disconnect();
+  graphState.resizeObserver = null;
 });
 
 watch(
@@ -280,7 +377,7 @@ const resetView = async () => {
     </div>
 
     <div class="branch-graph-hint muted small">
-      Drag to pan • Scroll to zoom • Click ▾ to collapse
+      Drag background to pan • Drag nodes to reposition • Scroll to zoom • Click ▾ to collapse
     </div>
 
     <div ref="containerEl" class="branch-graph-canvas">

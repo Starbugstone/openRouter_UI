@@ -689,6 +689,7 @@ textarea {
 
 .branch-graph-node {
   user-select: none;
+  cursor: grab;
 }
 
 .branch-graph-dot {

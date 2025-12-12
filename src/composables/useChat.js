@@ -124,6 +124,15 @@ export function useChat(modelsStore) {
     }
   };
 
+  let uiPersistTimer = null;
+  const scheduleUiPersist = () => {
+    if (uiPersistTimer) clearTimeout(uiPersistTimer);
+    uiPersistTimer = setTimeout(() => {
+      uiPersistTimer = null;
+      persist();
+    }, 250);
+  };
+
   const persist = async () => {
     if (!activeChatId.value) return;
     const chat = toPlainChat({
@@ -171,6 +180,15 @@ export function useChat(modelsStore) {
     branch.title = clean;
     branch.updatedAt = new Date().toISOString();
     await persist();
+  };
+
+  const setBranchUiOffset = (branchId, dx, dy) => {
+    const branch = branches.value.find(b => b.id === branchId);
+    if (!branch) return;
+    if (!branch.ui || typeof branch.ui !== 'object') branch.ui = { dx: 0, dy: 0 };
+    branch.ui.dx = Number.isFinite(dx) ? dx : 0;
+    branch.ui.dy = Number.isFinite(dy) ? dy : 0;
+    scheduleUiPersist();
   };
 
   const addUserMessage = async (content, images = []) => {
@@ -525,7 +543,17 @@ export function useChat(modelsStore) {
     if (!branch) return null;
     if (!Number.isInteger(forkIndex) || forkIndex <= 0 || forkIndex >= branch.messages.length) return branch;
 
-    // If already split (parent branch is truncated at forkIndex), don't split again.
+    const hasPreservedChild = branches.value.some((child) => (
+      child &&
+      child.id !== branch.id &&
+      child.parentId === branch.id &&
+      child.forkFromMessageIndex === forkIndex
+    ));
+
+    // If already split at this index (explicit flag + preserved child), don't split again.
+    if (branch.splitAtMessageIndex === forkIndex && hasPreservedChild) return branch;
+
+    // If there's no continuation beyond forkIndex, splitting is a no-op.
     if (branch.messages.length === forkIndex + 1) return branch;
 
     const now = new Date().toISOString();
@@ -550,6 +578,7 @@ export function useChat(modelsStore) {
 
     // Truncate the current branch in-place into the fork base.
     branch.messages = baseMessages;
+    branch.splitAtMessageIndex = forkIndex;
     branch.updatedAt = now;
 
     branches.value.push(preserved);
@@ -639,6 +668,7 @@ export function useChat(modelsStore) {
     selectPrevSiblingBranch,
     selectNextSiblingBranch,
     renameBranch,
+    setBranchUiOffset,
     addUserMessage,
     addAssistantMessage,
     updateLastAssistantMessage,
@@ -659,6 +689,8 @@ function createBranch({ title, parentId, messages, forkFromMessageIndex }) {
     parentId,
     messages: messages || [],
     forkFromMessageIndex: typeof forkFromMessageIndex === 'number' ? forkFromMessageIndex : null,
+    splitAtMessageIndex: null,
+    ui: { dx: 0, dy: 0 },
     createdAt: now,
     updatedAt: now
   };
@@ -686,11 +718,17 @@ function hydrateBranches(chat) {
 }
 
 function normalizeBranch(branch) {
+  const rawUi = branch.ui && typeof branch.ui === 'object' ? branch.ui : null;
   return {
     id: branch.id,
     title: branch.title || 'Branch',
     parentId: branch.parentId || null,
     forkFromMessageIndex: typeof branch.forkFromMessageIndex === 'number' ? branch.forkFromMessageIndex : null,
+    splitAtMessageIndex: typeof branch.splitAtMessageIndex === 'number' ? branch.splitAtMessageIndex : null,
+    ui: {
+      dx: Number.isFinite(rawUi?.dx) ? rawUi.dx : 0,
+      dy: Number.isFinite(rawUi?.dy) ? rawUi.dy : 0
+    },
     messages: Array.isArray(branch.messages) ? branch.messages : [],
     createdAt: branch.createdAt || new Date().toISOString(),
     updatedAt: branch.updatedAt || new Date().toISOString()
@@ -740,6 +778,10 @@ function toPlainChat(chat) {
       title: branch.title,
       parentId: branch.parentId,
       forkFromMessageIndex: typeof branch.forkFromMessageIndex === 'number' ? branch.forkFromMessageIndex : null,
+      splitAtMessageIndex: typeof branch.splitAtMessageIndex === 'number' ? branch.splitAtMessageIndex : null,
+      ui: branch.ui && typeof branch.ui === 'object'
+        ? { dx: Number(branch.ui.dx) || 0, dy: Number(branch.ui.dy) || 0 }
+        : { dx: 0, dy: 0 },
       messages: toPlainMessages(branch.messages || []),
       createdAt: branch.createdAt,
       updatedAt: branch.updatedAt

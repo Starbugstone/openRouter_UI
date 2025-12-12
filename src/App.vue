@@ -265,6 +265,7 @@ const newChat = async () => {
               @select="handleBranchSelect"
               @clone="handleCloneBranch"
               @rename="(id, title) => chatStore.renameBranch(id, title)"
+              @move="(id, dx, dy) => chatStore.setBranchUiOffset(id, dx, dy)"
             />
           </div>
         </div>
