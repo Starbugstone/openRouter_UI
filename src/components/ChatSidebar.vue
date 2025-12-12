@@ -29,3 +29,4 @@ const emit = defineEmits(['select', 'new', 'delete']);
   </aside>
 </template>
 
+

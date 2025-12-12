@@ -106,3 +106,4 @@ const onSearchInput = (event) => emit('update:search', event.target.value);
   </div>
 </template>
 
+

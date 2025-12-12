@@ -725,6 +725,22 @@ textarea {
   opacity: 1.0;
 }
 
+.branch-graph-delete {
+  font-size: 11px;
+  fill: #ff6b6b;
+  cursor: pointer;
+  opacity: 0.0;
+}
+
+.branch-graph-node:hover .branch-graph-delete {
+  opacity: 1.0;
+}
+
+.branch-graph-rename:hover,
+.branch-graph-delete:hover {
+  text-decoration: underline;
+}
+
 .chat-branch-controls {
   display: flex;
   align-items: center;

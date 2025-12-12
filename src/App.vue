@@ -87,6 +87,12 @@ const handleCloneBranch = async () => {
   await chatStore.cloneActiveBranch();
 };
 
+const handleBranchDelete = async (branchId) => {
+  if (!window.confirm('Are you sure you want to delete this branch and all its children? This action cannot be undone.')) {
+    return;
+  }
+  await chatStore.deleteBranchCascade(branchId);
+};
 const handleBranchFromMessage = async (index) => {
   if (!chatStore.apiKey.value) {
     alert('Please paste your OpenRouter API key.');
@@ -144,6 +150,14 @@ const checkKeyStatus = async () => {
 const newChat = async () => {
   const chat = await chatStore.createChat();
   await chatStore.selectChat(chat.id);
+};
+
+const handleDeleteChat = async (chatId) => {
+  const chat = chatStore.chats.value.find(c => c.id === chatId) || null;
+  const title = (chat?.title || 'this chat').trim();
+  const ok = window.confirm(`Delete "${title}"? This cannot be undone.`);
+  if (!ok) return;
+  await chatStore.deleteChat(chatId);
 };
 </script>
 
@@ -204,7 +218,7 @@ const newChat = async () => {
           :active-chat-id="chatStore.activeChatId.value"
           @select="chatStore.selectChat"
           @new="newChat"
-          @delete="chatStore.deleteChat"
+          @delete="handleDeleteChat"
         />
 
         <div class="chat-main">
@@ -265,6 +279,7 @@ const newChat = async () => {
               @select="handleBranchSelect"
               @clone="handleCloneBranch"
               @rename="(id, title) => chatStore.renameBranch(id, title)"
+              @delete="handleBranchDelete"
               @move="(id, dx, dy) => chatStore.setBranchUiOffset(id, dx, dy)"
             />
           </div>

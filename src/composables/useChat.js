@@ -182,6 +182,69 @@ export function useChat(modelsStore) {
     await persist();
   };
 
+  const deleteBranchCascade = async (branchId) => {
+    if (streaming.value) return;
+    const target = branches.value.find(b => b.id === branchId);
+    if (!target) return;
+
+    const childrenByParent = new Map();
+    branches.value.forEach((br) => {
+      const parent = br.parentId || null;
+      const list = childrenByParent.get(parent) || [];
+      list.push(br.id);
+      childrenByParent.set(parent, list);
+    });
+
+    const toDelete = new Set();
+    const stack = [branchId];
+    toDelete.add(branchId);
+    while (stack.length) {
+      const id = stack.pop();
+      const kids = childrenByParent.get(id) || [];
+      for (const kidId of kids) {
+        if (toDelete.has(kidId)) continue;
+        toDelete.add(kidId);
+        stack.push(kidId);
+      }
+    }
+
+    let remaining = branches.value.filter(b => !toDelete.has(b.id));
+
+    if (!remaining.length) {
+      const baseBranch = createBranch({
+        title: 'Main',
+        parentId: null,
+        messages: [],
+        forkFromMessageIndex: null
+      });
+      remaining = [baseBranch];
+    }
+
+    let nextActiveId = activeBranchId.value;
+    if (!nextActiveId || toDelete.has(nextActiveId)) {
+      const parentId = target.parentId || null;
+      const parentExists = parentId && remaining.some(b => b.id === parentId);
+      if (parentExists) {
+        nextActiveId = parentId;
+      } else {
+        const sorted = remaining.slice().sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+        nextActiveId = sorted[0]?.id || remaining[0].id;
+      }
+    }
+
+    branches.value = remaining;
+    activeBranchId.value = nextActiveId;
+    const active = branches.value.find(b => b.id === activeBranchId.value) || branches.value[0] || null;
+    if (active) {
+      activeBranchId.value = active.id;
+      messages.value = active.messages;
+    } else {
+      messages.value = [];
+    }
+
+    await persist();
+  };
+
   const setBranchUiOffset = (branchId, dx, dy) => {
     const branch = branches.value.find(b => b.id === branchId);
     if (!branch) return;
@@ -668,6 +731,7 @@ export function useChat(modelsStore) {
     selectPrevSiblingBranch,
     selectNextSiblingBranch,
     renameBranch,
+    deleteBranchCascade,
     setBranchUiOffset,
     addUserMessage,
     addAssistantMessage,

@@ -7,7 +7,7 @@ const props = defineProps({
   activeBranchId: { type: String, default: '' }
 });
 
-const emit = defineEmits(['select', 'clone', 'rename', 'move']);
+const emit = defineEmits(['select', 'clone', 'rename', 'delete', 'move']);
 
 const containerEl = ref(null);
 const svgEl = ref(null);
@@ -61,6 +61,25 @@ const promptRename = (node) => {
   const title = (window.prompt('Rename branch:', current) || '').trim();
   if (!title) return;
   emit('rename', node.data.id, title);
+};
+
+const countDescendants = (data) => {
+  const children = Array.isArray(data?.children) ? data.children : [];
+  let count = 0;
+  for (const child of children) {
+    count += 1 + countDescendants(child);
+  }
+  return count;
+};
+
+const promptDelete = (node) => {
+  const title = node?.data?.title || 'this branch';
+  const total = countDescendants(node?.data);
+  const msg = total
+    ? `Delete "${title}" and ${total} sub-branch${total === 1 ? '' : 'es'}?`
+    : `Delete "${title}"?`;
+  if (!window.confirm(msg)) return;
+  emit('delete', node.data.id);
 };
 
 const getOwnOffset = (data) => {
@@ -250,6 +269,18 @@ const render = () => {
     })
     .text('Rename');
 
+  nodeEnter
+    .append('text')
+    .attr('class', 'branch-graph-delete')
+    .attr('x', 14)
+    .attr('y', 38)
+    .on('click', (event, d) => {
+      event.stopPropagation();
+      if (d.data.id === '__root__') return;
+      promptDelete(d);
+    })
+    .text('Delete');
+
   const nodeMerge = nodeEnter.merge(nodeSel);
 
   nodeMerge.attr('transform', (d) => {
@@ -323,6 +354,10 @@ const render = () => {
 
   nodeMerge
     .select('text.branch-graph-rename')
+    .style('display', (d) => (d.data.id === '__root__' ? 'none' : 'block'));
+
+  nodeMerge
+    .select('text.branch-graph-delete')
     .style('display', (d) => (d.data.id === '__root__' ? 'none' : 'block'));
 
   nodeSel.exit().remove();
