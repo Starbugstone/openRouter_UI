@@ -2,7 +2,7 @@ import Dexie from 'dexie';
 
 const db = new Dexie('openrouter_ui');
 
-db.version(1).stores({
+db.version(2).stores({
   chats: 'id, updatedAt'
 });
 
@@ -38,3 +38,5 @@ export function useDb() {
     deleteChat
   };
 }
+
+

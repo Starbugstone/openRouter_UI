@@ -42,15 +42,23 @@ const onSend = () => emit('send');
           placeholder="Type your message here..."
           rows="1"
           :disabled="disabled"
-          @keydown.enter.exact.prevent="onSend"          @input="onPromptInput"
+          @keydown.enter.exact.prevent="onSend"
+          @input="onPromptInput"
         ></textarea>
       </div>
       <button class="btn" :disabled="disabled" @click="onSend">Send</button>
     </div>
     <div id="imagePreview" class="image-preview">
-      <div v-for="img in images" :key="img.data" class="image-preview-item">
-      <div v-for="(img, index) in images" :key="index" class="image-preview-item">        <button class="remove-btn" @click="removeImage(img.data)">×</button>
+      <div
+        v-for="(img, index) in images"
+        :key="typeof img === 'string' ? `${img}-${index}` : (img && img.data) || index"
+        class="image-preview-item"
+      >
+        <img :src="typeof img === 'string' ? img : img.data" :alt="(img && img.name) || 'Uploaded image'" />
+        <button class="remove-btn" @click="removeImage(typeof img === 'string' ? img : img.data)">×</button>
       </div>
     </div>
   </div>
 </template>
+
+
