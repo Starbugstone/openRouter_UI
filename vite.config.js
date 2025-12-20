@@ -5,3 +5,5 @@ export default defineConfig({
   plugins: [vue()],
   publicDir: 'assets'
 });
+
+

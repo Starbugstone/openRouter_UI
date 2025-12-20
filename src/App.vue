@@ -11,7 +11,7 @@ import ModelSelectorModal from './components/ModelSelectorModal.vue';
 import ChatSidebar from './components/ChatSidebar.vue';
 import ChatMessages from './components/ChatMessages.vue';
 import ChatInput from './components/ChatInput.vue';
-import BranchList from './components/BranchList.vue';
+import BranchGraph from './components/BranchGraph.vue';
 
 const modelsStore = useModels();
 const chatStore = useChat(modelsStore);
@@ -25,8 +25,8 @@ const fileInput = ref(null);
 
 const selectedModelName = computed(() => modelsStore.selectedModel.value?.name || 'Select a model...');
 
-const regenHistory = computed(() => chatStore.regenerations.value?.history || []);
-const regenIndex = computed(() => chatStore.regenerations.value?.currentIndex ?? -1);
+const activeTab = ref('history');
+const branchList = computed(() => chatStore.branchTree.value);
 
 const selectedModelLinks = computed(() => {
   const model = modelsStore.selectedModel.value;
@@ -67,18 +67,40 @@ const handleSend = async () => {
   imagesStore.clearImages();
 };
 
+const handleStop = async () => {
+  await chatStore.stopStreaming();
+};
+
 const handleRegenerate = async () => {
   if (!chatStore.apiKey.value) {
     alert('Please paste your OpenRouter API key.');
     return;
   }
-  await chatStore.regenerate({
-    apiKeyValue: chatStore.apiKey.value
-  });
+  await chatStore.regenerateLastAssistantReply({ apiKeyValue: chatStore.apiKey.value });
 };
 
-const handleBranchSelect = async (index) => {
-  await chatStore.regenerateFromBranch(index);
+const handleBranchSelect = async (branchId) => {
+  await chatStore.setActiveBranch(branchId);
+};
+
+const handleCloneBranch = async () => {
+  await chatStore.cloneActiveBranch();
+};
+
+const handleBranchDelete = async (branchId) => {
+  if (!window.confirm('Are you sure you want to delete this branch and all its children? This action cannot be undone.')) {
+    return;
+  }
+  await chatStore.deleteBranchCascade(branchId);
+};
+const handleBranchFromMessage = async (index) => {
+  if (!chatStore.apiKey.value) {
+    alert('Please paste your OpenRouter API key.');
+    return;
+  }
+  const edited = window.prompt('Edit the message content before branching (optional):');
+  await chatStore.branchFromMessage(index, edited || null, { generate: true, apiKeyValue: chatStore.apiKey.value });
+  activeTab.value = 'history';
 };
 
 const handleModelCardClick = (model) => {
@@ -128,6 +150,14 @@ const checkKeyStatus = async () => {
 const newChat = async () => {
   const chat = await chatStore.createChat();
   await chatStore.selectChat(chat.id);
+};
+
+const handleDeleteChat = async (chatId) => {
+  const chat = chatStore.chats.value.find(c => c.id === chatId) || null;
+  const title = (chat?.title || 'this chat').trim();
+  const ok = window.confirm(`Delete "${title}"? This cannot be undone.`);
+  if (!ok) return;
+  await chatStore.deleteChat(chatId);
 };
 </script>
 
@@ -188,36 +218,71 @@ const newChat = async () => {
           :active-chat-id="chatStore.activeChatId.value"
           @select="chatStore.selectChat"
           @new="newChat"
-          @delete="chatStore.deleteChat"
+          @delete="handleDeleteChat"
         />
 
         <div class="chat-main">
           <div class="chat-header">
             <label>Chat</label>
             <div class="chat-actions">
-              <button class="btn secondary" :disabled="chatStore.streaming.value" @click="handleRegenerate">Regenerate</button>
+              <button class="btn secondary" :disabled="!chatStore.streaming.value" @click="handleStop">Stop</button>
             </div>
+          </div>
+
+          <div class="chat-tabs">
+            <button class="tab" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'">Chat History</button>
+            <button class="tab" :class="{ active: activeTab === 'branches' }" @click="activeTab = 'branches'">Branches</button>
           </div>
 
           <div v-if="chatStore.chatWarning.value" class="chat-warning">{{ chatStore.chatWarning.value }}</div>
 
-          <ChatMessages :messages="chatStore.messages.value" />
+          <div v-if="activeTab === 'history'" class="chat-tab-panel">
+            <ChatMessages
+              :messages="chatStore.messages.value"
+              :fallback-model-name="selectedModelName"
+              :streaming="chatStore.streaming.value"
+              :can-regenerate="chatStore.canRegenerate.value"
+              @branch="handleBranchFromMessage"
+              @regenerate="handleRegenerate"
+            />
 
-          <ChatInput
-            :prompt="prompt"
-            :images="imagesStore.uploadedImages.value"
-            :disabled="chatStore.streaming.value"
-            @update:prompt="val => (prompt.value = val)"
-            @add-images="files => imagesStore.handleFiles(files)"
-            @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
-            @send="handleSend"
-          />
+            <div class="chat-branch-controls">
+              <div class="chat-branch-controls-left">
+                <span class="muted small">
+                  Branch: <strong>{{ chatStore.activeBranch.value?.title || '—' }}</strong>
+                  <span v-if="chatStore.siblingBranches.value.length > 1">
+                    ({{ chatStore.siblingBranchIndex.value + 1 }}/{{ chatStore.siblingBranches.value.length }})
+                  </span>
+                </span>
+              </div>
+              <div class="chat-branch-controls-right">
+                <button class="btn secondary btn-compact" :disabled="!chatStore.canSelectPrevSibling.value" @click="chatStore.selectPrevSiblingBranch">◀ Prev</button>
+                <button class="btn secondary btn-compact" :disabled="!chatStore.canSelectNextSibling.value" @click="chatStore.selectNextSiblingBranch">Next ▶</button>
+                <button class="btn secondary btn-compact" @click="activeTab = 'branches'">Tree…</button>
+              </div>
+            </div>
 
-          <BranchList
-            :history="regenHistory"
-            :current-index="regenIndex"
-            @select="handleBranchSelect"
-          />
+            <ChatInput
+              v-model:prompt="prompt"
+              :images="imagesStore.uploadedImages.value"
+              :disabled="chatStore.streaming.value"
+              @add-images="files => imagesStore.handleFiles(files)"
+              @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
+              @send="handleSend"
+            />
+          </div>
+
+          <div v-else class="chat-tab-panel">
+            <BranchGraph
+              :branches="branchList"
+              :active-branch-id="chatStore.activeBranchId.value"
+              @select="handleBranchSelect"
+              @clone="handleCloneBranch"
+              @rename="(id, title) => chatStore.renameBranch(id, title)"
+              @delete="handleBranchDelete"
+              @move="(id, dx, dy) => chatStore.setBranchUiOffset(id, dx, dy)"
+            />
+          </div>
         </div>
       </div>
     </div>
