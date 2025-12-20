@@ -2,6 +2,36 @@ const API_BASE_URL = 'https://openrouter.ai/api/v1';
 const MODELS_ENDPOINT = `${API_BASE_URL}/models`;
 const CHAT_ENDPOINT = `${API_BASE_URL}/chat/completions`;
 const KEY_STATUS_ENDPOINT = `${API_BASE_URL}/key`;
+const APP_TITLE = 'Local OpenRouter Playground';
+
+function normalizeApiKey(apiKey) {
+  if (!apiKey || typeof apiKey !== 'string') return '';
+  const trimmed = apiKey.trim();
+  if (!trimmed) return '';
+  if (trimmed.toLowerCase().startsWith('bearer ')) {
+    return trimmed.slice(7).trim();
+  }
+  return trimmed;
+}
+
+function buildHeaders(apiKey, { stream = false } = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: stream ? 'text/event-stream' : 'application/json',
+    'X-Title': APP_TITLE
+  };
+
+  const normalized = normalizeApiKey(apiKey);
+  if (normalized) {
+    headers.Authorization = `Bearer ${normalized}`;
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    headers['HTTP-Referer'] = window.location.origin;
+  }
+
+  return headers;
+}
 
 export async function fetchModels() {
   const res = await fetch(MODELS_ENDPOINT);
@@ -13,10 +43,7 @@ export async function fetchModels() {
 export async function checkApiKeyStatus(apiKey) {
   const res = await fetch(KEY_STATUS_ENDPOINT, {
     method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    }
+    headers: buildHeaders(apiKey)
   });
   if (!res.ok) throw new Error(`HTTP ${res.status} - ${res.statusText}`);
   return res.json();
@@ -30,12 +57,7 @@ export async function sendChatCompletion({ apiKey, model, messages, stream = fal
     ...options
   };
 
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    'Content-Type': 'application/json',
-    Accept: stream ? 'text/event-stream' : 'application/json',
-    'X-Title': 'Local OpenRouter Playground'
-  };
+  const headers = buildHeaders(apiKey, { stream });
 
   const res = await fetch(CHAT_ENDPOINT, {
     method: 'POST',
@@ -162,5 +184,4 @@ async function buildError(res) {
   const text = await res.text();
   return new Error(`HTTP ${res.status} – ${text || res.statusText}`);
 }
-
 
