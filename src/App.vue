@@ -42,9 +42,15 @@ const selectedModelLinks = computed(() => {
   };
 });
 
+/** Restore an unresolved saved model after model discovery recovers. */
 const loadModels = async () => {
   modelError.value = '';
-  try { await modelsStore.load(); }
+  try {
+    await modelsStore.load();
+    if (chatStore.activeChatId.value && !modelsStore.selectedModel.value) {
+      await chatStore.selectChat(chatStore.activeChatId.value);
+    }
+  }
   catch { modelError.value = 'Could not load models. Check your connection and refresh models.'; }
 };
 

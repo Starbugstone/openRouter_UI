@@ -348,9 +348,12 @@ export function useChat(modelsStore, authStore) {
     }
   };
 
+  /** Recheck the authorized account before inference and pin replies to the initiating branch. */
   const sendCompletionFlow = async ({ branchId, modelId, messages: payloadMessages, onStreamChunk, onDone }) => {
     const credential = authStore.requireCredential();
-    if (credential !== activeRequest.credential) throw new Error('Connection changed. Send again to authorize this request.');
+    if (credential !== activeRequest.credential) {
+      throw Object.assign(new Error('Connection changed. Send again to authorize this request.'), { kind: 'connection' });
+    }
     const { imageMode, stream: shouldStream, model } = activeRequest;
     const response = await sendChatCompletion({
       apiKey: credential,

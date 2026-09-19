@@ -128,7 +128,11 @@ describe('chat regression coverage', () => {
   it('does not use a new connection to send a request authorized for the old one', async () => {
     auth.requireCredential.mockReturnValueOnce(credential).mockReturnValue('different-account');
     const fetch = vi.spyOn(globalThis, 'fetch');
-    await expect(chat.sendMessage({ prompt: 'Question', images: [] })).rejects.toThrow('Connection changed');
+    await expect(chat.sendMessage({ prompt: 'Question', images: [] })).rejects.toMatchObject({
+      kind: 'connection', message: 'Connection changed. Send again to authorize this request.'
+    });
+    expect(auth.handleRequestError).toHaveBeenCalledWith(expect.objectContaining({ kind: 'connection' }), credential);
+    expect(auth.isConnected.value).toBe(true);
     expect(fetch).not.toHaveBeenCalled();
   });
   it('honors Stop during authorization before changing history or sending inference', async () => {
