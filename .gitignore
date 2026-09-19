@@ -5,3 +5,11 @@
 *.log
 
 
+/test-results
+/playwright-report
+/output/playwright
+
+.env
+.env.*
+!.env.example
+!.env.production
