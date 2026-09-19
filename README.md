@@ -1,5 +1,7 @@
 # AI Playground
 
+Production: [aiplayground.starbugstone.com](https://aiplayground.starbugstone.com)
+
 AI Playground is a lightweight browser-based interface for experimenting with AI chat, image generation, streaming responses, and conversation branches. It currently uses OpenRouter as its model/API gateway. Chats stay in IndexedDB in your browser; no application backend or client secret is needed.
 
 ## Run locally
@@ -45,21 +47,21 @@ npm run preview
 
 Deploy `dist/` to a static HTTPS host. OAuth derives its callback from the current origin and pathname, so localhost ports, subpaths, and future domain changes need no auth code edits. The host must serve the app at that callback path. App attribution and the authorization key label use `APP_NAME` in `src/config/app.js`; the API referer uses the runtime origin.
 
-### Future domain configuration
+### Production domain configuration
 
-The final production domain is not yet selected. Copy `.env.example` to `.env.local` and set `VITE_PUBLIC_SITE_URL` when it is known. Rebuild after changing it. This value adds the canonical link and Open Graph URL to the generated HTML; when unset, those tags are omitted so previews and localhost do not advertise a temporary hostname. It does not override OAuth callbacks or `HTTP-Referer`.
+The production hostname is `aiplayground.starbugstone.com` and is already reachable over HTTPS. The tracked `.env.production` sets `VITE_PUBLIC_SITE_URL=https://aiplayground.starbugstone.com`, so normal production builds and Vercel preview builds advertise the canonical production URL. Development leaves canonical/OG URLs unset. The value only controls metadata; OAuth callbacks and `HTTP-Referer` always follow the active browser origin, including localhost and previews.
+
+For a different deployment, override `VITE_PUBLIC_SITE_URL` in the build environment or `.env.production.local`, then rebuild. Setting it to an empty string omits canonical/OG URLs. `.env.production` contains public configuration only; never add secrets to `VITE_*` variables.
 
 For hosting at a subpath, build with Vite's `--base` option, for example `npm run build -- --base=/playground/`, and set the public site URL to include that path. Preview that build with the same base: `npm run preview -- --base=/playground/`. Icons use Vite's base URL and the manifest uses relative paths.
 
-Before the domain cutover is considered complete:
+After merging and deploying this PR to the existing production hostname:
 
-- Configure DNS, deploy to the chosen hostname, and verify HTTPS.
-- Set `VITE_PUBLIC_SITE_URL`, rebuild, and check canonical/OG metadata.
-- Add the live URL to this README and the GitHub repository Homepage.
-- Update hosting settings and remove the old hostname from active deployment configuration; invalidate cached favicon/PWA assets if needed.
-- Verify real OAuth authorization and code exchange on the new origin, then model/chat requests. Confirm `HTTP-Referer` is the new origin and `X-Title` is AI Playground; recheck localhost too.
+- Confirm the new AI Playground title, icons, and canonical/OG URL on the live site; invalidate cached favicon/PWA assets if needed.
+- Verify real OAuth authorization and code exchange, then model/chat requests. Confirm `HTTP-Referer` is `https://aiplayground.starbugstone.com` and `X-Title` is AI Playground; recheck localhost too.
+- Remove any superseded custom hostname from active hosting configuration if applicable. No old-domain redirect or repository rename is required.
 
-No old-domain redirect or repository rename is required. These deployment steps remain pending until a final hostname is chosen.
+The hostname and HTTPS are already in place. Live verification of the new OAuth flow requires the PR's application version to be deployed.
 
 ### Intentional development-history reset
 

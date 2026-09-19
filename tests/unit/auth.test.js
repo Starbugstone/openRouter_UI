@@ -5,6 +5,7 @@ import { useOpenRouterAuth } from '../../src/composables/useOpenRouterAuth';
 import { AUTH_STORAGE as keys } from '../../src/config/openrouter';
 import AuthPanel from '../../src/components/AuthPanel.vue';
 import { createChallenge } from '../../src/utils/pkce';
+import { checkApiKeyStatus } from '../../src/composables/useApi';
 
 const secret = 'test-oauth-credential-never-display';
 const paid = { id: 'test/paid', name: 'Paid model', pricing: { prompt: '0.01', completion: '0.02' } };
@@ -23,7 +24,7 @@ function callback(search = '?code=once&state=nonce&keep=yes#chat') {
 afterEach(() => { scope?.stop(); vi.unstubAllGlobals(); });
 
 describe('OAuth lifecycle', () => {
-  it.each(['http://localhost:61234/app/', 'https://future.example/playground/'])('derives an S256 callback from deployment %s', async href => {
+  it.each(['http://localhost:61234/app/', 'https://future.example/playground/', 'https://aiplayground.starbugstone.com/'])('derives an S256 callback from deployment %s', async href => {
     const location = new URL(href);
     location.assign = vi.fn();
     vi.stubGlobal('window', { location, addEventListener: vi.fn(), removeEventListener: vi.fn() });
@@ -36,6 +37,13 @@ describe('OAuth lifecycle', () => {
     expect(url.searchParams.get('code_challenge')).toBe(await createChallenge(sessionStorage.getItem(keys.verifier)));
     expect(localStorage.length).toBe(0);
     expect(auth.isAuthorizing.value).toBe(true);
+  });
+  it.each(['http://localhost:61234', 'https://aiplayground.starbugstone.com'])('attributes API requests to the active origin %s', async origin => {
+    vi.stubGlobal('window', { location: { origin }, removeEventListener: vi.fn() });
+    const fetch = mockStatus();
+    await checkApiKeyStatus(secret);
+    expect(fetch.mock.calls[0][1].headers['HTTP-Referer']).toBe(origin);
+    expect(fetch.mock.calls[0][1].headers['X-Title']).toBe('AI Playground');
   });
   it('deletes legacy credentials without reading or using them', async () => {
     localStorage.setItem('or_api_key', 'legacy-secret');

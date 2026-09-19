@@ -2,6 +2,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import sharp from 'sharp';
+import { loadEnv } from 'vite';
 import { APP_NAME, APP_PACKAGE_NAME, APP_DESCRIPTION, getPublicSiteUrl, getWebManifest } from '../../src/config/app';
 import { appMetadata } from '../../scripts/app-metadata';
 
@@ -18,6 +19,15 @@ describe('product identity and deployment metadata', () => {
     expect(html).toContain(`<title>${APP_NAME}</title>`);
     expect(manifest).toEqual(getWebManifest());
     expect(manifest.icons.every(icon => !icon.src.startsWith('/'))).toBe(true);
+  });
+  it('loads the final production URL for builds while leaving local development independent', () => {
+    const production = loadEnv('production', process.cwd(), 'VITE_');
+    const development = loadEnv('development', process.cwd(), 'VITE_');
+    expect(production.VITE_PUBLIC_SITE_URL).toBe('https://aiplayground.starbugstone.com');
+    expect(development.VITE_PUBLIC_SITE_URL || '').toBe('');
+    const tags = appMetadata(production.VITE_PUBLIC_SITE_URL).transformIndexHtml();
+    expect(tags.find(tag => tag.attrs.rel === 'canonical').attrs.href).toBe('https://aiplayground.starbugstone.com/');
+    expect(tags.find(tag => tag.attrs.property === 'og:url').attrs.content).toBe('https://aiplayground.starbugstone.com/');
   });
   it('omits canonical/OG URLs when no final domain is configured', () => {
     expect(getPublicSiteUrl('')).toBeNull();
