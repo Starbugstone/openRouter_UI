@@ -8,6 +8,7 @@ test('model refresh recovers the saved model after startup failure without reope
   await page.getByPlaceholder('Type your message here...').fill('Saved conversation');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Browser reply', { exact: true })).toBeVisible();
+  await expect(page.getByPlaceholder('Type your message here...')).toHaveValue('');
 
   let attempts = 0;
   await context.route('https://openrouter.ai/api/v1/models', route => {
