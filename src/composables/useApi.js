@@ -1,29 +1,20 @@
-const API_BASE_URL = 'https://openrouter.ai/api/v1';
+import { APP_NAME } from '../config/app';
+import { API_BASE_URL } from '../config/openrouter';
+
 const MODELS_ENDPOINT = `${API_BASE_URL}/models`;
 const CHAT_ENDPOINT = `${API_BASE_URL}/chat/completions`;
 const KEY_STATUS_ENDPOINT = `${API_BASE_URL}/key`;
-const APP_TITLE = 'Local OpenRouter Playground';
-
-function normalizeApiKey(apiKey) {
-  if (!apiKey || typeof apiKey !== 'string') return '';
-  const trimmed = apiKey.trim();
-  if (!trimmed) return '';
-  if (trimmed.toLowerCase().startsWith('bearer ')) {
-    return trimmed.slice(7).trim();
-  }
-  return trimmed;
-}
+export const AUTH_EXCHANGE_ENDPOINT = `${API_BASE_URL}/auth/keys`;
 
 function buildHeaders(apiKey, { stream = false } = {}) {
   const headers = {
     'Content-Type': 'application/json',
     Accept: stream ? 'text/event-stream' : 'application/json',
-    'X-Title': APP_TITLE
+    'X-Title': APP_NAME
   };
 
-  const normalized = normalizeApiKey(apiKey);
-  if (normalized) {
-    headers.Authorization = `Bearer ${normalized}`;
+  if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
   }
 
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -45,7 +36,7 @@ export async function checkApiKeyStatus(apiKey) {
     method: 'GET',
     headers: buildHeaders(apiKey)
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+  if (!res.ok) throw await buildError(res);
   return res.json();
 }
 
@@ -68,48 +59,63 @@ export async function sendChatCompletion({ apiKey, model, messages, stream = fal
 
   if (!stream) {
     if (!res.ok) throw await buildError(res);
-    return res.json();
+    const data = await res.json();
+    if (data.error) throw apiError(data.error.code);
+    return data;
   }
 
   if (!res.ok) throw await buildError(res);
   return res;
 }
 
-export function readSSE(response, onChunk, onDone) {
+export async function readSSE(response, onChunk, onDone) {
   const reader = response.body.getReader();
-  const decoder = new TextDecoder('utf-8');
+  const decoder = new TextDecoder();
   let buffer = '';
-
-  const pump = () => reader.read().then(({ done, value }) => {
-    if (done) {
-      if (onDone) onDone();
-      return;
-    }
-    buffer += decoder.decode(value, { stream: true });
-    let idx;
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const chunk = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-      const lines = chunk.split('\n');
+  const consume = (line) => {
+    if (!line.trim().startsWith('data:')) return false;
+    const data = line.trim().slice(5).trim();
+    if (data === '[DONE]') return true;
+    let chunk;
+    try { chunk = JSON.parse(data); } catch { return false; }
+    if (chunk.error) throw apiError(chunk.error.code);
+    onChunk(chunk);
+    return false;
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop();
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith('data:')) continue;
-        const data = trimmed.slice(5).trim();
-        if (data === '[DONE]') {
-          if (onDone) onDone();
+        if (consume(line)) {
+          await onDone?.();
           return;
         }
-        try {
-          const obj = JSON.parse(data);
-          onChunk(obj);
-        } catch {
-          // ignore
-        }
+      }
+      if (done) {
+        if (buffer) consume(buffer);
+        await onDone?.();
+        return;
       }
     }
-    return pump();
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
+export async function exchangeAuthorizationCode({ code, codeVerifier }) {
+  const res = await fetch(AUTH_EXCHANGE_ENDPOINT, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body: JSON.stringify({ code, code_verifier: codeVerifier, code_challenge_method: 'S256' })
   });
-  return pump();
+  if (!res.ok) throw await buildError(res);
+  const data = await res.json();
+  if (typeof data.key !== 'string' || !data.key.trim()) throw new Error('Invalid authorization response.');
+  return data.key;
 }
 
 export function buildMessagesFromHistory(history) {
@@ -180,8 +186,17 @@ export function getChatUrl(modelId) {
   return `https://openrouter.ai/chat?model=${encodeURIComponent(modelId)}`;
 }
 
-async function buildError(res) {
-  const text = await res.text();
-  return new Error(`HTTP ${res.status} – ${text || res.statusText}`);
+// Never surface provider response bodies: they can echo credentials or prompts.
+export function apiError(status) {
+  status = Number(status) || 0;
+  const kind = status === 401 ? 'auth' : status === 402 ? 'billing' : status === 429 ? 'rate' : 'api';
+  const message = kind === 'auth' ? 'Your OpenRouter connection is no longer valid. Reconnect to continue.'
+    : kind === 'billing' ? 'OpenRouter credits or the key spend allowance are exhausted. Manage your key or add credits.'
+    : kind === 'rate' ? 'OpenRouter rate limit reached. Try again later.'
+    : `OpenRouter request failed (HTTP ${status || 'unknown'}). Check the selected model and try again.`;
+  return Object.assign(new Error(message), { status, kind });
 }
 
+async function buildError(res) {
+  return apiError(res.status);
+}

@@ -130,6 +130,7 @@ textarea {
 .chat-sidebar {
   width: 260px;
   min-width: 220px;
+  box-sizing: border-box;
   background: #0e1015;
   border: 1px solid #23262e;
   border-radius: 10px;
@@ -1082,3 +1083,17 @@ textarea {
     width: 100%;
   }
 }
+
+.auth-panel h2 { margin: 0; font-size: 16px; }
+.auth-panel p { overflow-wrap: anywhere; }
+.account-details { display: grid; grid-template-columns: minmax(100px, 1fr) 2fr; gap: 6px 12px; font-size: 12px; }
+.account-details dt { color: #b6b9c3; }
+.account-details dd { margin: 0; overflow-wrap: anywhere; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-links { font-size: 13px; line-height: 1.8; }
+.spend-state { color: #f9d88b; font-size: 13px; }
+.error { color: #ffb4ab; }
+.model-price-detail { overflow-wrap: anywhere; line-height: 1.6; }
+
+a { color: #8bb8ff; }
+a:hover { color: #bcd6ff; }

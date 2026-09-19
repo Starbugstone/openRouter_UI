@@ -1,4 +1,5 @@
 import { ref, computed } from 'vue';
+import { isZeroCostModel } from '../utils/pricing';
 import { fetchModels, getModelUrl, getChatUrl } from './useApi';
 
 export function useModels() {
@@ -11,7 +12,7 @@ export function useModels() {
   const loading = ref(false);
 
   const filteredModels = computed(() => {
-    const source = includePaid.value ? allModels.value : allModels.value.filter(isFreeModel);
+    const source = includePaid.value ? allModels.value : allModels.value.filter(isZeroCostModel);
     const sorted = sortModels(source, sort.value);
     const term = search.value.toLowerCase().trim();
     return sorted.filter(m => {
@@ -50,16 +51,11 @@ export function useModels() {
     loading,
     load,
     select,
-    isFreeModel,
+    isZeroCostModel,
     getCapabilities,
     getModelUrl,
     getChatUrl
   };
-}
-
-function isFreeModel(model) {
-  const pricing = model.pricing || {};
-  return pricing.prompt === '0' && pricing.completion === '0';
 }
 
 function sortModels(models, sortKey) {

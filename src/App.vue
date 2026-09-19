@@ -3,9 +3,12 @@ import { ref, computed, onMounted } from 'vue';
 import { useModels } from './composables/useModels';
 import { useChat } from './composables/useChat';
 import { useImages } from './composables/useImages';
-import { checkApiKeyStatus, getModelUrl, getChatUrl } from './composables/useApi';
+import { getModelUrl, getChatUrl } from './composables/useApi';
 
-import ApiKeyPanel from './components/ApiKeyPanel.vue';
+import AuthPanel from './components/AuthPanel.vue';
+import { APP_NAME } from './config/app';
+import { isZeroCostModel, pricingSummary } from './utils/pricing';
+import { useOpenRouterAuth } from './composables/useOpenRouterAuth';
 import ModeSettings from './components/ModeSettings.vue';
 import ModelSelectorModal from './components/ModelSelectorModal.vue';
 import ChatSidebar from './components/ChatSidebar.vue';
@@ -13,15 +16,16 @@ import ChatMessages from './components/ChatMessages.vue';
 import ChatInput from './components/ChatInput.vue';
 import BranchGraph from './components/BranchGraph.vue';
 
+const authStore = useOpenRouterAuth();
 const modelsStore = useModels();
-const chatStore = useChat(modelsStore);
+const chatStore = useChat(modelsStore, authStore);
 const imagesStore = useImages();
 
 const prompt = ref('');
 const showModelModal = ref(false);
-const apiKeyStatus = ref('');
-const apiKeyStatusLoading = ref(false);
-const fileInput = ref(null);
+const requestError = ref('');
+const modelError = ref('');
+const appReady = ref(false);
 
 const selectedModelName = computed(() => modelsStore.selectedModel.value?.name || 'Select a model...');
 
@@ -38,46 +42,44 @@ const selectedModelLinks = computed(() => {
   };
 });
 
+const loadModels = async () => {
+  modelError.value = '';
+  try { await modelsStore.load(); }
+  catch { modelError.value = 'Could not load models. Check your connection and refresh models.'; }
+};
+
 onMounted(async () => {
-  const savedKey = localStorage.getItem('or_api_key');
-  const remember = localStorage.getItem('or_remember_key') === 'true';
-  if (savedKey && remember) {
-    chatStore.apiKey.value = savedKey;
-    chatStore.rememberKey.value = true;
-  }
-  await modelsStore.load();
-  await chatStore.init();
+  document.title = APP_NAME;
+  await authStore.initialize();
+  await loadModels();
+  try { await chatStore.init(); appReady.value = true; }
+  catch { requestError.value = 'Could not open chat history. Check browser storage and reload.'; }
 });
 
+const runChatAction = async action => {
+  requestError.value = '';
+  try { return await action(); }
+  catch (error) {
+    if (!['auth', 'billing'].includes(error.kind)) requestError.value = error.kind ? error.message : 'Could not send the request. Check your connection and selected model. No automatic retry was made.';
+    else if (error.kind === 'auth' && !authStore.authError.value) authStore.authError.value = 'Connect with OpenRouter to send messages.';
+    return false;
+  }
+};
+
 const handleSend = async () => {
-  if (!chatStore.apiKey.value) {
-    alert('Please paste your OpenRouter API key.');
-    return;
+  if (!prompt.value.trim() && !imagesStore.uploadedImages.value.length) return;
+  const sent = await runChatAction(() => chatStore.sendMessage({ prompt: prompt.value.trim(), images: imagesStore.uploadedImages.value }));
+  if (sent) {
+    prompt.value = '';
+    imagesStore.clearImages();
   }
-  if (!prompt.value.trim() && imagesStore.uploadedImages.value.length === 0) {
-    alert('Please write a message or upload an image.');
-    return;
-  }
-  await chatStore.sendMessage({
-    prompt: prompt.value.trim(),
-    images: imagesStore.uploadedImages.value,
-    apiKeyValue: chatStore.apiKey.value
-  });
-  prompt.value = '';
-  imagesStore.clearImages();
 };
 
 const handleStop = async () => {
   await chatStore.stopStreaming();
 };
 
-const handleRegenerate = async () => {
-  if (!chatStore.apiKey.value) {
-    alert('Please paste your OpenRouter API key.');
-    return;
-  }
-  await chatStore.regenerateLastAssistantReply({ apiKeyValue: chatStore.apiKey.value });
-};
+const handleRegenerate = () => runChatAction(() => chatStore.regenerateLastAssistantReply());
 
 const handleBranchSelect = async (branchId) => {
   await chatStore.setActiveBranch(branchId);
@@ -94,12 +96,9 @@ const handleBranchDelete = async (branchId) => {
   await chatStore.deleteBranchCascade(branchId);
 };
 const handleBranchFromMessage = async (index) => {
-  if (!chatStore.apiKey.value) {
-    alert('Please paste your OpenRouter API key.');
-    return;
-  }
   const edited = window.prompt('Edit the message content before branching (optional):');
-  await chatStore.branchFromMessage(index, edited || null, { generate: true, apiKeyValue: chatStore.apiKey.value });
+  if (edited === null) return;
+  await runChatAction(() => chatStore.branchFromMessage(index, edited || null, { generate: true }));
   activeTab.value = 'history';
 };
 
@@ -108,43 +107,6 @@ const handleModelCardClick = (model) => {
   showModelModal.value = false;
   chatStore.chatWarning.value = '';
   chatStore.persist();
-};
-
-const handleIncludePaidChange = (event) => {
-  modelsStore.includePaid.value = event.target.checked;
-};
-
-const handleRememberKeyChange = () => {
-  localStorage.setItem('or_remember_key', chatStore.rememberKey.value ? 'true' : 'false');
-  if (!chatStore.rememberKey.value) {
-    localStorage.removeItem('or_api_key');
-  } else if (chatStore.apiKey.value) {
-    localStorage.setItem('or_api_key', chatStore.apiKey.value);
-  }
-};
-
-const handleApiKeyInput = () => {
-  if (chatStore.rememberKey.value) {
-    localStorage.setItem('or_api_key', chatStore.apiKey.value || '');
-  }
-};
-
-const checkKeyStatus = async () => {
-  if (!chatStore.apiKey.value) {
-    alert('Please enter your OpenRouter API key first.');
-    return;
-  }
-  apiKeyStatusLoading.value = true;
-  apiKeyStatus.value = 'Checking API key status...';
-  try {
-    const data = await checkApiKeyStatus(chatStore.apiKey.value);
-    const keyData = data.data || {};
-    apiKeyStatus.value = `Label: ${keyData.label || 'Unnamed'} · Spend: $${(keyData.usage || 0).toFixed(2)} / ${keyData.limit === null ? '∞' : `$${keyData.limit.toFixed(2)}`} · Remaining: ${keyData.limit_remaining !== null ? `$${keyData.limit_remaining.toFixed(2)}` : 'n/a'}`;
-  } catch (e) {
-    apiKeyStatus.value = `Error: ${e.message}`;
-  } finally {
-    apiKeyStatusLoading.value = false;
-  }
 };
 
 const newChat = async () => {
@@ -163,20 +125,12 @@ const handleDeleteChat = async (chatId) => {
 
 <template>
   <div class="wrap">
-    <h1>OpenRouter Mini Playground</h1>
+    <h1>{{ APP_NAME }}</h1>
 
     <div class="card">
       <div class="row">
         <div style="flex:1 1 320px;">
-          <ApiKeyPanel
-            :api-key="chatStore.apiKey.value"
-            :remember-key="chatStore.rememberKey.value"
-            :status="apiKeyStatus"
-            :loading="apiKeyStatusLoading"
-            @update:apiKey="value => { chatStore.apiKey.value = value; handleApiKeyInput(); }"
-            @update:rememberKey="value => { chatStore.rememberKey.value = value; handleRememberKeyChange(); }"
-            @check="checkKeyStatus"
-          />
+          <AuthPanel :auth="authStore" />
         </div>
         <div style="flex:1 1 240px;">
           <ModeSettings
@@ -201,15 +155,19 @@ const handleDeleteChat = async (chatId) => {
               <span style="font-size: 12px;">▼</span>
             </button>
           </div>
+          <p v-if="modelsStore.selectedModel.value && !isZeroCostModel(modelsStore.selectedModel.value)" class="muted small model-price-detail"><strong class="spend-state">Paid</strong> · {{ pricingSummary(modelsStore.selectedModel.value) }}</p>
           <div class="muted small" style="margin-top:6px">
             <strong>Models:</strong> {{ modelsStore.filteredModels.value.length }} available models.
-            <button type="button" class="btn secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 8px;" @click="modelsStore.load">
+            <button type="button" class="btn secondary" style="padding: 4px 8px; font-size: 11px; margin-left: 8px;" @click="loadModels">
               {{ modelsStore.loading.value ? 'Loading...' : 'Refresh' }}
             </button>
           </div>
         </div>
       </div>
     </div>
+
+    <p v-if="modelError" class="error" role="alert">{{ modelError }}</p>
+    <p v-if="requestError" class="error" role="alert">{{ requestError }}</p>
 
     <div class="card chat-container">
       <div class="chat-layout">
@@ -241,7 +199,7 @@ const handleDeleteChat = async (chatId) => {
               :messages="chatStore.messages.value"
               :fallback-model-name="selectedModelName"
               :streaming="chatStore.streaming.value"
-              :can-regenerate="chatStore.canRegenerate.value"
+              :can-regenerate="chatStore.canRegenerate.value && authStore.isConnected.value && !authStore.isInitializing.value"
               @branch="handleBranchFromMessage"
               @regenerate="handleRegenerate"
             />
@@ -265,7 +223,7 @@ const handleDeleteChat = async (chatId) => {
             <ChatInput
               v-model:prompt="prompt"
               :images="imagesStore.uploadedImages.value"
-              :disabled="chatStore.streaming.value"
+              :disabled="chatStore.streaming.value || !appReady || !authStore.isConnected.value || authStore.isInitializing.value || authStore.isAuthorizing.value"
               @add-images="files => imagesStore.handleFiles(files)"
               @remove-image="dataUrl => imagesStore.removeImage(dataUrl)"
               @send="handleSend"
@@ -290,11 +248,12 @@ const handleDeleteChat = async (chatId) => {
     <div class="card" style="margin-top: 8px;">
       <div v-if="selectedModelLinks" class="muted small model-links">
         Selected model: <strong>{{ selectedModelLinks.name }}</strong> ·
-        <a :href="selectedModelLinks.modelUrl" target="_blank" rel="noopener">Model page</a> ·
-        <a :href="selectedModelLinks.chatUrl" target="_blank" rel="noopener">Open chat</a>
+        <a :href="selectedModelLinks.modelUrl" target="_blank" rel="noopener">OpenRouter model page</a> ·
+        <a :href="selectedModelLinks.chatUrl" target="_blank" rel="noopener">Open in OpenRouter Chat</a>
       </div>
       <div class="muted small">
-        Docs:
+        <p>{{ APP_NAME }} uses OpenRouter as its AI model/API provider. The links below point to OpenRouter’s official documentation and model pages.</p>
+        OpenRouter documentation/resources:
         <a href="https://openrouter.ai/docs/quickstart" target="_blank" rel="noopener">Quickstart</a> ·
         <a href="https://openrouter.ai/docs/features/multimodal/image-generation" target="_blank" rel="noopener">Image Gen via chat</a> ·
         <a href="https://openrouter.ai/models" target="_blank" rel="noopener">Models</a>
@@ -306,7 +265,7 @@ const handleDeleteChat = async (chatId) => {
       :models="modelsStore.filteredModels.value.map(m => ({
         ...m,
         capabilities: modelsStore.getCapabilities(m),
-        isFree: modelsStore.isFreeModel(m),
+        isFree: modelsStore.isZeroCostModel(m),
         modelUrl: getModelUrl(m.id),
         chatUrl: getChatUrl(m.id)
       }))"

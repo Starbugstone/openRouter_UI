@@ -1,8 +1,9 @@
 import { ref, computed } from 'vue';
+import { isZeroCostModel } from '../utils/pricing';
 import { useDb } from './useDb';
 import { buildMessagesFromHistory, extractImagesFromMessage, extractTextFromMessage, readSSE, sendChatCompletion } from './useApi';
 
-export function useChat(modelsStore) {
+export function useChat(modelsStore, authStore) {
   const { saveChat, listChats, getChat, deleteChat: deleteChatFromDb } = useDb();
 
   const chats = ref([]);
@@ -11,8 +12,6 @@ export function useChat(modelsStore) {
   const activeBranchId = ref(null);
   const messages = ref([]);
 
-  const apiKey = ref('');
-  const rememberKey = ref(false);
   const mode = ref('text');
   const stream = ref(true);
   const timeoutSec = ref(30);
@@ -20,6 +19,7 @@ export function useChat(modelsStore) {
   const streaming = ref(false);
   const chatWarning = ref('');
   const abortController = ref(null);
+  let activeRequest = null;
 
   const activeChat = computed(() => chats.value.find(c => c.id === activeChatId.value) || null);
   const activeBranch = computed(() => branches.value.find(b => b.id === activeBranchId.value) || null);
@@ -107,6 +107,7 @@ export function useChat(modelsStore) {
       modelsStore.select(candidateModel);
       chatWarning.value = '';
     } else if (chat.model) {
+      modelsStore.select(null);
       chatWarning.value = `Model ${chat.model.id} is unavailable. Choose another model to continue.`;
     } else {
       chatWarning.value = 'Select a model to start chatting.';
@@ -268,124 +269,46 @@ export function useChat(modelsStore) {
     await persist();
   };
 
-  const addAssistantMessage = async (content, images = []) => {
-    const branch = activeBranch.value;
-    if (!branch) return;
-    branch.messages.push({
-      role: 'assistant',
-      content,
-      images,
-      timestamp: new Date().toISOString(),
-      model: modelsStore.selectedModel.value
-        ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-        : null
-    });
-    branch.updatedAt = new Date().toISOString();
-    messages.value = branch.messages;
-    await persist();
-  };
-
-  const updateLastAssistantMessage = (content, images = []) => {
-    const branch = activeBranch.value;
-    if (!branch) return;
-    for (let i = branch.messages.length - 1; i >= 0; i--) {
-      if (branch.messages[i].role === 'assistant') {
-        branch.messages[i].content = content;
-        branch.messages[i].images = images;
-        branch.messages[i].model = modelsStore.selectedModel.value
-          ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-          : branch.messages[i].model || null;
-        branch.updatedAt = new Date().toISOString();
-        messages.value = branch.messages;
-        return;
-      }
-    }
-  };
-
-  const updateAssistantMessage = ({ branchId, assistantIndex, content, images = [] }) => {
-    const branch = branches.value.find(b => b.id === branchId);
-    if (!branch) return;
-
-    const idx = typeof assistantIndex === 'number' ? assistantIndex : -1;
-    if (idx < 0 || idx >= branch.messages.length || branch.messages[idx]?.role !== 'assistant') {
-      // Fallback: best-effort update of the last assistant message in the pinned branch.
-      for (let i = branch.messages.length - 1; i >= 0; i--) {
-        if (branch.messages[i]?.role === 'assistant') {
-          branch.messages[i].content = content;
-          branch.messages[i].images = images;
-          branch.messages[i].model = modelsStore.selectedModel.value
-            ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-            : branch.messages[i].model || null;
-          branch.updatedAt = new Date().toISOString();
-          if (activeBranchId.value === branchId) messages.value = branch.messages;
-          return;
-        }
-      }
-      return;
-    }
-
-    branch.messages[idx].content = content;
-    branch.messages[idx].images = images;
-    branch.messages[idx].model = modelsStore.selectedModel.value
-      ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-      : branch.messages[idx].model || null;
-    branch.updatedAt = new Date().toISOString();
-
-    if (activeBranchId.value === branchId) {
-      messages.value = branch.messages;
-    }
-  };
-
-  const sendMessage = async ({ prompt, images, onStreamChunk, onDone, apiKeyValue }) => {
-    if (streaming.value) return;
+  // All generating operations share one authorization/error boundary. The guard
+  // runs before history mutations, including regeneration and edited branches.
+  const runGeneration = async (action) => {
+    if (streaming.value) return false;
     const model = modelsStore.selectedModel.value;
-    if (!model) throw new Error('Select a model');
+    if (!model) throw Object.assign(new Error('Select an available model before sending.'), { kind: 'model' });
+    streaming.value = true;
+    abortController.value = new AbortController();
+    let requestCredential;
+    try {
+      if (!await authStore.beforeRequest(model, { signal: abortController.value.signal }) || abortController.value.signal.aborted) return false;
+      requestCredential = authStore.requireCredential();
+      activeRequest = { model, credential: requestCredential, imageMode: mode.value === 'image', stream: stream.value };
+      await action(model);
+      return true;
+    } catch (error) {
+      if (error.name === 'AbortError') return true;
+      await authStore.handleRequestError(error, requestCredential);
+      throw error;
+    } finally {
+      if (requestCredential && !isZeroCostModel(model) && authStore.isConnected.value) await authStore.checkStatus();
+      streaming.value = false;
+      abortController.value = null;
+      activeRequest = null;
+    }
+  };
 
-    // Pin streaming to the initiating branch so branch switches mid-stream don't redirect updates.
+  const sendMessage = ({ prompt, images, onStreamChunk, onDone }) => runGeneration(async (model) => {
     const streamBranchId = activeBranchId.value;
     await addUserMessage(prompt, images);
+    await sendFromCurrentHistory({ model, branchId: streamBranchId, onStreamChunk, onDone });
+  });
 
-    const streamBranch = branches.value.find(b => b.id === streamBranchId);
-    const payloadMessages = buildMessagesFromHistory(streamBranch?.messages || []);
-    streaming.value = true;
-    abortController.value = new AbortController();
-
-    try {
-      if (mode.value === 'image') {
-        await sendImageFlow({ branchId: streamBranchId, apiKeyValue, modelId: model.id, messages: payloadMessages, onStreamChunk, onDone });
-      } else {
-        await sendTextFlow({ branchId: streamBranchId, apiKeyValue, modelId: model.id, messages: payloadMessages, onStreamChunk, onDone });
-      }
-    } finally {
-      streaming.value = false;
-      abortController.value = null;
-    }
+  const sendFromCurrentHistory = async ({ model, branchId = activeBranchId.value, onStreamChunk, onDone }) => {
+    const branch = branches.value.find(b => b.id === branchId);
+    const payload = { branchId, modelId: model.id, messages: buildMessagesFromHistory(branch?.messages || []), onStreamChunk, onDone };
+    await sendCompletionFlow(payload);
   };
 
-  const sendFromCurrentHistory = async ({ apiKeyValue, onStreamChunk, onDone }) => {
-    if (streaming.value) return;
-    const model = modelsStore.selectedModel.value;
-    if (!model) throw new Error('Select a model');
-
-    const streamBranchId = activeBranchId.value;
-    const streamBranch = branches.value.find(b => b.id === streamBranchId);
-    const payloadMessages = buildMessagesFromHistory(streamBranch?.messages || []);
-    streaming.value = true;
-    abortController.value = new AbortController();
-
-    try {
-      if (mode.value === 'image') {
-        await sendImageFlow({ branchId: streamBranchId, apiKeyValue, modelId: model.id, messages: payloadMessages, onStreamChunk, onDone });
-      } else {
-        await sendTextFlow({ branchId: streamBranchId, apiKeyValue, modelId: model.id, messages: payloadMessages, onStreamChunk, onDone });
-      }
-    } finally {
-      streaming.value = false;
-      abortController.value = null;
-    }
-  };
-
-  const regenerateLastAssistantReply = async ({ apiKeyValue, onStreamChunk, onDone }) => {
+  const regenerateLastAssistantReply = ({ onStreamChunk, onDone } = {}) => runGeneration(async (model) => {
     const branch = activeBranch.value;
     if (!branch) return;
 
@@ -416,174 +339,72 @@ export function useChat(modelsStore) {
     messages.value = newBranch.messages;
     await persist();
 
-    await sendFromCurrentHistory({ apiKeyValue, onStreamChunk, onDone });
-  };
+    await sendFromCurrentHistory({ model, onStreamChunk, onDone });
+  });
 
   const stopStreaming = async () => {
     if (abortController.value) {
       abortController.value.abort();
     }
-    streaming.value = false;
   };
 
-  const sendTextFlow = async ({ branchId, apiKeyValue, modelId, messages: payloadMessages, onStreamChunk, onDone }) => {
+  const sendCompletionFlow = async ({ branchId, modelId, messages: payloadMessages, onStreamChunk, onDone }) => {
+    const credential = authStore.requireCredential();
+    if (credential !== activeRequest.credential) throw new Error('Connection changed. Send again to authorize this request.');
+    const { imageMode, stream: shouldStream, model } = activeRequest;
     const response = await sendChatCompletion({
-      apiKey: apiKeyValue,
+      apiKey: credential,
       model: modelId,
       messages: payloadMessages,
-      stream: stream.value,
+      stream: shouldStream,
+      options: imageMode ? { modalities: ['image', 'text'], n: imgCount.value } : {},
       signal: abortController.value?.signal
     });
-
-    if (!stream.value) {
-      const content = extractTextFromMessage(response.choices?.[0]?.message) || '[Empty response]';
-      const imgs = extractImagesFromMessage(response.choices?.[0]?.message);
-      const target = branches.value.find(b => b.id === branchId);
-      if (!target) return;
-      target.messages.push({
-        role: 'assistant',
-        content,
-        images: imgs,
-        timestamp: new Date().toISOString(),
-        model: modelsStore.selectedModel.value
-          ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-          : null
-      });
-      target.updatedAt = new Date().toISOString();
-      if (activeBranchId.value === branchId) messages.value = target.messages;
-      await persist();
-      if (onDone) onDone();
-      return;
-    }
-
-    let assistantContent = '';
-    let assistantImages = [];
     const target = branches.value.find(b => b.id === branchId);
     if (!target) return;
-    target.messages.push({
-      role: 'assistant',
-      content: '…',
-      images: [],
-      timestamp: new Date().toISOString(),
-      model: modelsStore.selectedModel.value
-        ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-        : null
-    });
-    target.updatedAt = new Date().toISOString();
-    if (activeBranchId.value === branchId) messages.value = target.messages;
-    const assistantIndex = target.messages.length - 1;
-    const finalize = async () => {
-      const finalContent = assistantContent.trim() || '[Empty response]';
-      updateAssistantMessage({ branchId, assistantIndex, content: finalContent, images: assistantImages });
-      await persist();
-      if (onDone) onDone();
+    const assistant = {
+      role: 'assistant', content: '', images: [],
+      timestamp: new Date().toISOString(), model: { id: model.id, name: model.name }
     };
-
+    target.messages.push(assistant);
+    const assistantIndex = target.messages.length - 1;
+    let content = '';
+    const images = [];
+    const update = (text) => {
+      // Update the initiating branch and model even if selection changes mid-stream.
+      target.messages[assistantIndex] = { ...assistant, content: text, images: [...images] };
+      target.updatedAt = new Date().toISOString();
+      if (activeBranchId.value === branchId) messages.value = target.messages;
+    };
+    const finalize = async () => {
+      update(content.trim() || (imageMode ? `Generated ${images.length} image(s):` : '[Empty response]'));
+      await persist();
+      await onDone?.();
+    };
+    if (!shouldStream) {
+      content = extractTextFromMessage(response.choices?.[0]?.message);
+      const choices = imageMode ? response.choices || [] : (response.choices || []).slice(0, 1);
+      images.push(...choices.flatMap(choice => extractImagesFromMessage(choice.message)));
+      await finalize();
+      return;
+    }
+    update('…');
     try {
-      await readSSE(response, (chunk) => {
-        const choice = chunk.choices?.[0];
-        const delta = choice?.delta;
-        if (typeof delta?.content === 'string') {
-          assistantContent += delta.content;
-          updateAssistantMessage({ branchId, assistantIndex, content: assistantContent || '…', images: assistantImages });
-        } else if (Array.isArray(delta?.content)) {
-          for (const part of delta.content) {
-            if (part?.type === 'output_text' && part.text) {
-              assistantContent += part.text;
-            }
-            if (part?.type === 'output_image' && part.image_url?.url) {
-              assistantImages.push(part.image_url.url);
-            }
-          }
-          updateAssistantMessage({ branchId, assistantIndex, content: assistantContent || '…', images: assistantImages });
+      await readSSE(response, chunk => {
+        const delta = chunk.choices?.[0]?.delta;
+        if (typeof delta?.content === 'string') content += delta.content;
+        else if (Array.isArray(delta?.content)) {
+          content += delta.content.filter(part => part?.type === 'output_text' && part.text).map(part => part.text).join('');
         }
-        if (onStreamChunk) onStreamChunk({ content: assistantContent, images: assistantImages });
+        images.push(...extractImagesFromMessage(delta));
+        update(content || (images.length ? `Generated ${images.length} image(s):` : '…'));
+        onStreamChunk?.({ content, images: [...images] });
       }, finalize);
-    } catch (err) {
-      updateAssistantMessage({ branchId, assistantIndex, content: '[Error: Stream failed]', images: [] });
+    } catch (error) {
+      update(error.name === 'AbortError' ? (content || '[Stopped]') : (content || '[Error: Stream failed]'));
       await persist();
-      throw err;
+      throw error;
     }
-  };
-
-  const sendImageFlow = async ({ branchId, apiKeyValue, modelId, messages: payloadMessages, onStreamChunk, onDone }) => {
-    const options = { modalities: ['image', 'text'], n: imgCount.value };
-    const response = await sendChatCompletion({
-      apiKey: apiKeyValue,
-      model: modelId,
-      messages: payloadMessages,
-      stream: stream.value,
-      options,
-      signal: abortController.value?.signal
-    });
-
-    if (!stream.value) {
-      const content = 'Generated image(s):';
-      const imgs = (response.choices || []).flatMap(choice => extractImagesFromMessage(choice.message));
-      const target = branches.value.find(b => b.id === branchId);
-      if (!target) return;
-      target.messages.push({
-        role: 'assistant',
-        content,
-        images: imgs,
-        timestamp: new Date().toISOString(),
-        model: modelsStore.selectedModel.value
-          ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-          : null
-      });
-      target.updatedAt = new Date().toISOString();
-      if (activeBranchId.value === branchId) messages.value = target.messages;
-      await persist();
-      if (onDone) onDone();
-      return;
-    }
-
-    let assistantContent = '';
-    let assistantImages = [];
-    const target = branches.value.find(b => b.id === branchId);
-    if (!target) return;
-    target.messages.push({
-      role: 'assistant',
-      content: '…',
-      images: [],
-      timestamp: new Date().toISOString(),
-      model: modelsStore.selectedModel.value
-        ? { id: modelsStore.selectedModel.value.id, name: modelsStore.selectedModel.value.name }
-        : null
-    });
-    target.updatedAt = new Date().toISOString();
-    if (activeBranchId.value === branchId) messages.value = target.messages;
-    const assistantIndex = target.messages.length - 1;
-    const finalize = async () => {
-      const finalContent = assistantContent.trim() || `Generated ${assistantImages.length} image(s):`;
-      updateAssistantMessage({ branchId, assistantIndex, content: finalContent, images: assistantImages });
-      await persist();
-      if (onDone) onDone();
-    };
-
-    await readSSE(response, (chunk) => {
-      const choice = chunk.choices?.[0];
-      const delta = choice?.delta;
-      if (typeof delta?.content === 'string') {
-        assistantContent += delta.content;
-      } else if (Array.isArray(delta?.content)) {
-        for (const part of delta.content) {
-          if (part?.type === 'output_text' && part.text) {
-            assistantContent += part.text;
-          }
-          if (part?.type === 'output_image' && part.image_url?.url) {
-            assistantImages.push(part.image_url.url);
-          }
-        }
-      }
-      updateAssistantMessage({
-        branchId,
-        assistantIndex,
-        content: assistantContent || `Generated ${assistantImages.length} image(s):`,
-        images: assistantImages
-      });
-      if (onStreamChunk) onStreamChunk({ content: assistantContent, images: assistantImages });
-    }, finalize);
   };
 
   const cloneActiveBranch = async () => {
@@ -648,8 +469,7 @@ export function useChat(modelsStore) {
     return branch;
   };
 
-  const branchFromMessage = async (messageIndex, editedContent = null, options = {}) => {
-    if (streaming.value) return;
+  const createMessageBranch = async (messageIndex, editedContent, options, model) => {
     const branch = activeBranch.value;
     if (!branch) return;
     if (messageIndex <= 0 || messageIndex >= branch.messages.length) return;
@@ -674,16 +494,20 @@ export function useChat(modelsStore) {
     await persist();
 
     if (options?.generate) {
-      const key = options.apiKeyValue || apiKey.value;
-      if (!key) return newBranch;
       await sendFromCurrentHistory({
-        apiKeyValue: key,
+        model,
         onStreamChunk: options.onStreamChunk,
         onDone: options.onDone
       });
     }
 
     return newBranch;
+  };
+
+  const branchFromMessage = (messageIndex, editedContent = null, options = {}) => {
+    if (streaming.value) return;
+    if (options.generate) return runGeneration(model => createMessageBranch(messageIndex, editedContent, options, model));
+    return createMessageBranch(messageIndex, editedContent, options);
   };
 
   const branchTree = computed(() => {
@@ -708,8 +532,6 @@ export function useChat(modelsStore) {
     activeBranchId,
     activeBranch,
     messages,
-    apiKey,
-    rememberKey,
     mode,
     stream,
     timeoutSec,
@@ -734,8 +556,6 @@ export function useChat(modelsStore) {
     deleteBranchCascade,
     setBranchUiOffset,
     addUserMessage,
-    addAssistantMessage,
-    updateLastAssistantMessage,
     sendMessage,
     regenerateLastAssistantReply,
     stopStreaming,
@@ -775,7 +595,7 @@ function hydrateBranches(chat) {
   const fallback = createBranch({
     title: 'Main',
     parentId: null,
-    messages: chat.messages || [],
+    messages: [],
     forkFromMessageIndex: null
   });
   return { branches: [fallback], activeBranchId: fallback.id, activeBranch: fallback };

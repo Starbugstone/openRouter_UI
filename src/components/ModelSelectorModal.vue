@@ -1,4 +1,5 @@
 <script setup>
+import { pricingSummary } from '../utils/pricing';
 const props = defineProps({
   show: { type: Boolean, default: false },
   models: { type: Array, default: () => [] },
@@ -19,7 +20,13 @@ const emit = defineEmits([
   'update:search'
 ]);
 
-const onIncludePaidChange = (event) => emit('update:includePaid', event.target.checked);
+const onIncludePaidChange = (event) => {
+  if (event.target.checked && !window.confirm('Paid model requests use your OpenRouter credits, subject to your key and account limits. Show paid models?')) {
+    event.target.checked = false;
+    return;
+  }
+  emit('update:includePaid', event.target.checked);
+};
 const onSortChange = (event) => emit('update:sort', event.target.value);
 const onFilterClick = (value) => emit('update:filter', value);
 const onSearchInput = (event) => emit('update:search', event.target.value);
@@ -56,6 +63,7 @@ const onSearchInput = (event) => emit('update:search', event.target.value);
               </select>
             </div>
           </div>
+          <p v-if="includePaid" class="muted small">Paid requests use OpenRouter credits. Review pricing and your key limit before sending.</p>
           <div class="filter-buttons">
             <button
               v-for="btn in ['all','text','image','multimodal']"
@@ -92,13 +100,14 @@ const onSearchInput = (event) => emit('update:search', event.target.value);
               >{{ cap.charAt(0).toUpperCase() + cap.slice(1) }}</span>
             </div>
             <div class="model-pricing">{{ model.isFree ? 'Free' : 'Paid' }}</div>
+            <div v-if="!model.isFree" class="muted small model-price-detail">{{ pricingSummary(model) }}</div>
             <div class="model-context">Context: {{ model.context_length || 'Unknown' }} tokens</div>
             <div class="model-metrics">
               <span class="metric-item">Created: {{ model.created ? new Date(model.created * 1000).toLocaleDateString() : 'Unknown' }}</span>
             </div>
             <div class="model-actions">
-              <a :href="model.modelUrl" target="_blank" rel="noopener" @click.stop>Model page</a>
-              <a :href="model.chatUrl" target="_blank" rel="noopener" @click.stop>Open chat</a>
+              <a :href="model.modelUrl" target="_blank" rel="noopener" @click.stop>View on OpenRouter</a>
+              <a :href="model.chatUrl" target="_blank" rel="noopener" @click.stop>Open in OpenRouter Chat</a>
             </div>
           </div>
         </div>      </div>
