@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, connected, selectModel, storageKey, secret } from './fixtures';
+import { mockApi, connected, selectModel, storageKey, secret, withDialog } from './fixtures';
 
 test('real browser PKCE round trip, URL cleanup, persistence and cross-tab disconnect', async ({ page, context, browser }) => {
   const calls = await mockApi(context);
@@ -51,22 +51,22 @@ test('paid opt-in and first request confirmation happen before inference, declin
   await page.getByRole('button', { name: 'Select a model...' }).click();
   await expect(page.getByRole('button', { name: 'Select Paid model', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Select Image charges', exact: true })).toHaveCount(0);
-  page.once('dialog', async dialog => { expect(dialog.message()).toContain('credits'); await dialog.dismiss(); });
-  await page.getByText('Include paid models', { exact: true }).click();
+  await withDialog(page, () => page.getByText('Include paid models', { exact: true }).click(), async dialog => {
+    expect(dialog.message()).toContain('credits');
+    await dialog.dismiss();
+  });
   await expect(page.getByRole('button', { name: 'Select Paid model', exact: true })).toHaveCount(0);
-  page.once('dialog', dialog => dialog.accept());
-  await page.getByText('Include paid models', { exact: true }).click();
+  await withDialog(page, () => page.getByText('Include paid models', { exact: true }).click(), dialog => dialog.accept());
   await page.getByRole('button', { name: 'Select Paid model', exact: true }).click();
   const input = page.getByPlaceholder('Type your message here...'); await input.fill('Paid question');
-  page.once('dialog', async dialog => {
+  await withDialog(page, () => page.getByRole('button', { name: 'Send', exact: true }).click(), async dialog => {
     expect(dialog.message()).toContain('no per-key spend limit');
     expect(dialog.message()).toContain('$0.01 / input token');
     expect(calls.completions).toHaveLength(0); await dialog.dismiss();
   });
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(input).toBeEnabled();
   await expect(input).toHaveValue('Paid question');
-  page.once('dialog', dialog => dialog.accept());
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await withDialog(page, () => page.getByRole('button', { name: 'Send', exact: true }).click(), dialog => dialog.accept());
   await expect(page.getByText('Browser reply', { exact: true })).toBeVisible();
   expect(calls.completions).toHaveLength(1);
   await expect(input).toHaveValue('');

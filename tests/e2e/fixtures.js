@@ -2,6 +2,13 @@ import { expect } from '@playwright/test';
 
 export const storageKey = 'ai_playground_openrouter_key';
 export const secret = 'test-oauth-key-browser';
+
+/** Wait for both the triggering action and its dialog response before continuing. */
+export async function withDialog(page, action, respond) {
+  const dialog = page.waitForEvent('dialog');
+  await Promise.all([action(), dialog.then(respond)]);
+}
+
 const models = [
   { id: 'test/free', name: 'Free model', pricing: { prompt: '0', completion: '0', image: '0' } },
   { id: 'test/paid', name: 'Paid model', pricing: { prompt: '0.01', completion: '0.02' } },
